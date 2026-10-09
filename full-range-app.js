@@ -3827,6 +3827,46 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         }
     }
     
+    // Сохранение в MusicXML: формат обмена, его читают MuseScore, Sibelius,
+    // Audiveris. Наше состояние уходит в расширения sax-fingering-*
+    saveMusicXmlFile() {
+        if (!this.notes.length) return false;
+        if (typeof MusicXml === 'undefined') return false;
+
+        const footer = document.querySelector('.app-version');
+        const version = footer ? footer.textContent.replace(/^v/, '') : '';
+
+        const xml = MusicXml.build({
+            tempo: this.tempo,
+            timeSignature: this.timeSignature,
+            settings: {
+                appSoundShift: this.appSoundShift,
+                saxShift: this.saxShift,
+                soundingNames: this.soundingNames
+            },
+            meta: {
+                model: 1,
+                version: version,
+                fingeringSet: (typeof FINGERING_SET_ID !== 'undefined') ? FINGERING_SET_ID : ''
+            },
+            elements: this.notes
+        });
+
+        const blob = new Blob([xml], { type: 'application/vnd.recordare.musicxml+xml' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'melody.musicxml';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+        this.updateStatus(t('status.savedMusicXml'));
+        this.scheduleAutosave();
+        return true;
+    }
+
     saveToFile() {
         try {
             const data = this.serializeMelody();
@@ -4061,7 +4101,7 @@ document.addEventListener('DOMContentLoaded', () => {
     staffManager.restoreFineBlock();
     // Сохранение/загрузка
     document.getElementById('btn-save').addEventListener('click', () => {
-        staffManager.saveToFile();
+        staffManager.saveMusicXmlFile();
         releaseButtonFocus();
     });
     
