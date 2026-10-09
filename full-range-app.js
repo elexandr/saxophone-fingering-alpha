@@ -54,6 +54,7 @@ class FullRangeStaffManager {
         // Множественное выделение: набор выбранных нот и якорь диапазона.
         // selectedNoteId остаётся активной нотой - на неё смотрит прочая логика
         this.clipboard = null; // буфер обмена для копирования нот
+        this.suspendHistory = false; // на время массовых вставок история не пишется
         this.selectedIds = [];
         this.selectionAnchorId = null;
         // Планшет: долгое нажатие ставит якорь, второе касание задаёт конец
@@ -1619,7 +1620,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     // Запомнить состояние перед изменением. Держим не больше HISTORY_LIMIT
     // шагов: больше обычного не откатывают, а память не бесконечная.
     pushHistory() {
-        if (this.restoring || this.loading) return;
+        if (this.restoring || this.loading || this.suspendHistory) return;
         
         this.history.push(this.historySnapshot());
         if (this.history.length > HISTORY_LIMIT) this.history.shift();
@@ -1651,6 +1652,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // после отката нас возвращало бы к началу стана
         const scrollArea = document.querySelector('.scrollable-area');
         const scrollTop = scrollArea ? scrollArea.scrollTop : 0;
+        const scrollLeft = scrollArea ? scrollArea.scrollLeft : 0;
         
         const target = from.pop();
 
@@ -1658,7 +1660,16 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.applyMelody(target);
         this.restoring = false;
         
-        if (scrollArea) scrollArea.scrollTop = scrollTop;
+        if (scrollArea) {
+            scrollArea.scrollTop = scrollTop;
+            scrollArea.scrollLeft = scrollLeft;
+            // Строки перестраиваются не мгновенно, поэтому повторяем после кадра:
+            // иначе откат возвращает к началу пьесы
+            requestAnimationFrame(() => {
+                scrollArea.scrollTop = scrollTop;
+                scrollArea.scrollLeft = scrollLeft;
+            });
+        }
         
         // Выделение берём из восстановленного состояния, а не из текущего:
         // иначе после добавления или вставки выделять было бы нечего
@@ -1885,6 +1896,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         if (selected.length) insertAt = this.notes.indexOf(selected[selected.length - 1]) + 1;
         
         this.pushHistory();
+        // Вставка блока - один шаг отката: добавление ноты пишет историю само,
+        // поэтому на время вставки запись приостанавливаем
+        this.suspendHistory = true;
         this.clipboard.forEach(snapshot => {
             let id;
             if (snapshot.isRest) {
@@ -1902,6 +1916,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             insertAt++;
         });
         
+        this.suspendHistory = false;
         this.relayout();
         this.updateStatus(t('status.pasted', { n: this.clipboard.length }));
         this.scheduleAutosave();
