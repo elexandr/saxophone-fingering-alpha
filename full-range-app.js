@@ -55,6 +55,9 @@ class FullRangeStaffManager {
         // selectedNoteId остаётся активной нотой - на неё смотрит прочая логика
         this.selectedIds = [];
         this.selectionAnchorId = null;
+        // Планшет: долгое нажатие ставит якорь, второе касание задаёт конец
+        this.longPressTimer = null;
+        this.rangeMode = false;
         this.selectedBarLineId = null;
         this.showNoteNames = true;
         this.showFingerings = true; // Показывать ряды аппликатур под станом
@@ -953,12 +956,37 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         
         anchor.addEventListener('click', (e) => {
             e.stopPropagation();
+            // На планшете после долгого нажатия ждём второе касание - оно задаст конец
+            if (this.rangeMode && this.selectionAnchorId && this.selectionAnchorId !== element.id) {
+                this.rangeMode = false;
+                this.selectRangeTo(element.id);
+                return;
+            }
+            this.rangeMode = false;
             // Shift - диапазон, Ctrl - добавить или убрать одну ноту
             this.selectNote(element.id, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey });
             // По клику слышно высоту ноты. Именно по клику, а не при выделении:
             // выделение ставится и программно - при загрузке мелодии, удалении,
             // перестановке, - и звук там был бы лишним.
             this.playNotePreview(element);
+        });
+
+        // Планшет: браузерное меню по долгому нажатию на ноте не нужно,
+        // оно мешает ставить диапазон
+        anchor.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.startRangeSelection(element.id);
+        });
+
+        anchor.addEventListener('touchstart', (e) => {
+            if (e.touches && e.touches.length > 1) return;
+            this.clearLongPress();
+            this.longPressTimer = setTimeout(() => this.startRangeSelection(element.id), 450);
+        }, { passive: true });
+
+        ['touchend', 'touchmove', 'touchcancel'].forEach((type) => {
+            anchor.addEventListener(type, () => this.clearLongPress(), { passive: true });
         });
         
         this.bindDurationPanel(anchor, element);
@@ -1294,6 +1322,29 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             if (note && note.element) note.element.classList.remove('selected');
         });
         this.selectedIds = [];
+    }
+
+    // Долгое нажатие на планшете: нота становится началом диапазона,
+    // следующее касание другой ноты задаст конец
+    startRangeSelection(noteId) {
+        this.clearLongPress();
+        this.selectionAnchorId = noteId;
+        this.rangeMode = true;
+        if (!this.isNoteSelected(noteId)) {
+            this.clearSelectionMarks();
+            this.setNoteSelected(noteId, true);
+            this.selectedNoteId = noteId;
+            this.afterSelectionChange();
+        }
+        this.updateStatus(t('status.rangeStart'));
+        if (navigator.vibrate) { try { navigator.vibrate(30); } catch (e) { /* необязательно */ } }
+    }
+
+    clearLongPress() {
+        if (this.longPressTimer) {
+            clearTimeout(this.longPressTimer);
+            this.longPressTimer = null;
+        }
     }
 
     // Ctrl+клик: нота входит в набор или выходит из него

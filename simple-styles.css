@@ -609,6 +609,9 @@ body {
    окошко длительности и подпись. Размеров не имеет, поэтому координаты
    left/top задают ровно центр головки. */
 .note-anchor {
+    -webkit-touch-callout: none; /* на планшете не всплывает меню браузера */
+    -webkit-user-select: none;
+    user-select: none;
     position: absolute;
     width: 0;
     height: 0;
