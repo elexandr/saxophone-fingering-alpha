@@ -1208,6 +1208,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     }
     
     scrollToRight() {
+        // Во время отката и массовых вставок вид не дёргаем: место на стане
+        // возвращает сам откат, а прыжок вправо его перебивает
+        if (this.restoring || this.suspendHistory) return;
         // Прокручиваем scrollable-area вправо, чтобы новый элемент был виден
         setTimeout(() => {
             const scrollableArea = document.querySelector('.scrollable-area');
@@ -1904,6 +1907,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // Вставка блока - один шаг отката: добавление ноты пишет историю само,
         // поэтому на время вставки запись приостанавливаем
         this.suspendHistory = true;
+        const pastedIds = [];
         this.clipboard.forEach(snapshot => {
             let id;
             if (snapshot.isRest) {
@@ -1912,6 +1916,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 const info = this.getNoteInfoByName(snapshot.noteName);
                 id = this.addNote(info.positionId, snapshot.noteName, insertAt, { silent: true });
             }
+            if (id) pastedIds.push(id);
             const element = this.notes.find(n => n.id === id);
             if (element) {
                 if (snapshot.duration) this.setElementDuration(element, snapshot.duration);
@@ -1921,8 +1926,22 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             insertAt++;
         });
         
+        const pastedToEnd = insertAt >= this.notes.length;
         this.suspendHistory = false;
         this.relayout();
+
+        // Вставленные ноты попадают под выделение - и видно, что вставилось,
+        // и сразу можно продолжить работу с ними
+        if (pastedIds.length) {
+            this.clearSelectionMarks();
+            pastedIds.forEach(id => this.setNoteSelected(id, true));
+            this.selectedNoteId = pastedIds[pastedIds.length - 1];
+            this.selectionAnchorId = pastedIds[0];
+            this.afterSelectionChange();
+        }
+        // Вставляли в конец - показываем конец
+        if (pastedToEnd) this.scrollToRight();
+
         this.updateStatus(t('status.pasted', { n: this.clipboard.length }));
         this.scheduleAutosave();
         return true;
