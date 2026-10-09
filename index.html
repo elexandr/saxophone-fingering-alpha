@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Страницу не нужно показывать поисковикам: это личный инструмент,
+         а в окне «О проекте» есть адрес для связи -->
+    <meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+    <meta name="referrer" content="no-referrer">
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <title data-i18n="app.docTitle">Saxophone Fingering Assistant</title>
+    <link rel="stylesheet" href="simple-styles.css?v=1.9.0-a1">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Шапка: название, сводка, язык и «О проекте» в одну строку -->
+        <header class="app-header">
+            <h1><i class="fas fa-saxophone"></i> <span data-i18n="app.title">Saxophone Fingering Assistant</span></h1>
+
+            <div class="app-info">
+                <div class="info-item">
+                    <span class="info-label" data-i18n="app.notes">Нот:</span>
+                    <span id="note-count" class="info-value">0</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label" data-i18n="app.selected">Выделенная:</span>
+                    <span id="selected-note" class="info-value" data-i18n="app.none">нет</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label" data-i18n="app.range">Диапазон:</span>
+                    <span id="range-info" class="info-value">C2 - F#6</span>
+                </div>
+            </div>
+
+            <div class="app-actions">
+                <div class="lang-switch" role="group" aria-label="Language">
+                    <button type="button" class="lang-btn" data-lang="ru" title="Русский">RU</button>
+                    <button type="button" class="lang-btn" data-lang="en" title="English">EN</button>
+                </div>
+                <button type="button" id="btn-help" class="btn-ghost" data-i18n-title="help.hint">
+                    <i class="fas fa-circle-question"></i> <span data-i18n="help.button">Помощь</span>
+                </button>
+                <button type="button" id="btn-about" class="btn-ghost" data-i18n-title="app.aboutHint">
+                    <i class="fas fa-circle-info"></i> <span data-i18n="app.about">О проекте</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Основная область с нотным станом и аппликатурами -->
+        <main class="main-content">
+            <!-- Панель управления слева. Пояснения к разделам - в подсказках при наведении. -->
+            <aside class="control-panel">
+                <div class="control-section">
+                    <h3 data-i18n-title="panel.save.hint">
+                        <i class="fas fa-save"></i> <span data-i18n="panel.save">Сохранение</span>
+                    </h3>
+                    <div class="control-group">
+                        <button id="btn-save" class="btn-control btn-success" disabled data-i18n-title="btn.save.hint">
+                            <i class="fas fa-download"></i> <span data-i18n="btn.save">Сохранить</span>
+                        </button>
+                        <button id="btn-load" class="btn-control" data-i18n-title="btn.load.hint">
+                            <i class="fas fa-upload"></i> <span data-i18n="btn.load">Загрузить</span>
+                        </button>
+                        <button id="btn-midi-save" class="btn-control" disabled data-i18n-title="btn.midiSave.hint"><i class="fas fa-file-export"></i> <span data-i18n="btn.midiSave">Сохранить MIDI</span></button>
+                        <button id="btn-midi" class="btn-control" data-i18n-title="btn.midi.hint">
+                            <i class="fas fa-music"></i> <span data-i18n="btn.midi">Загрузить MIDI</span>
+                        </button>
+                    </div>
+                    <input type="file" id="file-input" accept=".json" style="display: none;">
+                    <input type="file" id="midi-input" accept=".mid,.midi,audio/midi,audio/x-midi" style="display: none;">
+                </div>
+
+                <div class="control-section">
+                    <h3 data-i18n-title="panel.play.hint">
+                        <i class="fas fa-play-circle"></i> <span data-i18n="panel.play">Воспроизведение</span>
+                    </h3>
+                    <div class="setting-group">
+                        <label for="tempo-input" data-i18n="setting.tempo">Темп, BPM:</label>
+                        <div class="number-row">
+                            <button type="button" id="btn-tempo-minus" class="btn-step" data-i18n-title="btn.tempoMinus.hint">&minus;</button>
+                        <input type="number" id="tempo-input" class="number-input" min="30" max="240" step="1"
+                               value="80" name="tempo-bpm" autocomplete="off" inputmode="numeric" spellcheck="false" data-form-type="other" data-i18n-title="setting.tempo.hint">
+                            <button type="button" id="btn-tempo-plus" class="btn-step" data-i18n-title="btn.tempoPlus.hint">+</button>
+                        </div>
+                        <label class="checkbox-label loop-label" for="loop-playback" data-i18n-title="setting.loop.hint">
+                            <input type="checkbox" id="loop-playback">
+                            <i class="fas fa-repeat"></i> <span data-i18n="setting.loop">Играть по кругу</span>
+                        </label>
+                    </div>
+                    <div class="setting-group">
+                        <label class="checkbox-label" for="metronome-on" data-i18n-title="setting.metronome.hint">
+                            <input type="checkbox" id="metronome-on">
+                            <i class="fas fa-stopwatch"></i> <span data-i18n="setting.metronome">Метроном</span>
+                        </label>
+                        <input type="range" id="metronome-volume" min="0" max="100" value="60" class="slider"
+                               data-i18n-title="setting.metronome.volumeHint">
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="checkbox-label" for="count-in-on" data-i18n-title="setting.countIn.hint">
+                            <input type="checkbox" id="count-in-on">
+                            <i class="fas fa-hourglass-start"></i> <span data-i18n="setting.countIn">Отсчёт перед началом</span>
+                        </label>
+                    </div>
+                    <div class="control-group">
+                        <button id="btn-play" class="btn-control btn-success" data-i18n-title="btn.play.hint">
+                            <i class="fas fa-play"></i> <span data-i18n="btn.play">Играть</span>
+                        </button>
+                        <button id="btn-stop" class="btn-control btn-danger" disabled data-i18n-title="btn.stop.hint">
+                            <i class="fas fa-stop"></i> <span data-i18n="btn.stop">Стоп</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="control-section">
+                    <h3 data-i18n-title="panel.edit.hint">
+                        <i class="fas fa-pen"></i> <span data-i18n="panel.edit">Редактирование</span>
+                    </h3>
+                <div class="control-subsection">
+                    <h4 class="control-subtitle" data-i18n-title="panel.notes.hint">
+                        <i class="fas fa-sliders-h"></i> <span data-i18n="panel.notes">Управление нотами</span>
+                    </h4>
+                    <div class="control-group">
+                        <button id="btn-note-up" class="btn-control" disabled data-i18n-title="btn.noteUp.hint">
+                            <i class="fas fa-arrow-up"></i> <span data-i18n="btn.noteUp">Поднять ноту</span>
+                        </button>
+                        <button id="btn-note-down" class="btn-control" disabled data-i18n-title="btn.noteDown.hint">
+                            <i class="fas fa-arrow-down"></i> <span data-i18n="btn.noteDown">Опустить ноту</span>
+                        </button>
+                    </div>
+                    <div class="control-group">
+                        <button id="btn-insert-note" class="btn-control" disabled data-i18n-title="btn.insert.hint"><i class="fas fa-level-up-alt"></i> <span data-i18n="btn.insert">Вставить ноту</span></button>
+                        <button id="btn-delete-note" class="btn-control btn-danger" disabled data-i18n-title="btn.delete.hint">
+                            <i class="fas fa-times"></i> <span data-i18n="btn.delete">Удалить ноту</span>
+                        </button>
+                        <button id="btn-clear" class="btn-control btn-danger" data-i18n-title="btn.clear.hint">
+                            <i class="fas fa-trash"></i> <span data-i18n="btn.clear">Очистить все</span>
+                        </button>
+                    </div>
+                </div>
+
+
+                <div class="control-subsection">
+                    <h4 class="control-subtitle" data-i18n-title="panel.rests.hint">
+                        <i class="fas fa-pause-circle"></i> <span data-i18n="panel.rests">Паузы</span>
+                    </h4>
+                    <div class="control-group">
+                        <button id="btn-add-rest" class="btn-control" data-i18n-title="btn.addRest.hint">
+                            <i class="fas fa-plus"></i> <span data-i18n="btn.addRest">Добавить паузу</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="control-subsection">
+                    <h4 class="control-subtitle" data-i18n-title="panel.repeat.hint">
+                        <i class="fas fa-redo"></i> <span data-i18n="panel.repeat">Реприза</span>
+                    </h4>
+                    <div class="control-group">
+                        <button id="btn-repeat-start" class="btn-control" disabled data-i18n-title="btn.repeatStart.hint">
+                            <i class="fas fa-step-backward"></i> <span data-i18n="btn.repeatStart">Начать репризу</span>
+                        </button>
+                        <button id="btn-repeat-end" class="btn-control" disabled data-i18n-title="btn.repeatEnd.hint">
+                            <i class="fas fa-step-forward"></i> <span data-i18n="btn.repeatEnd">Закончить репризу</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="control-subsection">
+                    <h4 class="control-subtitle" data-i18n-title="panel.measures.hint">
+                        <i class="fas fa-grip-lines-vertical"></i> <span data-i18n="panel.measures">Размер и такты</span>
+                    </h4>
+                    <div class="setting-group">
+                        <label for="time-signature" data-i18n="setting.signature">Размер такта:</label>
+                        <select id="time-signature" class="select-input" data-i18n-title="setting.signature.hint">
+                            <option value="4/4">4/4</option>
+                            <option value="3/4">3/4</option>
+                            <option value="2/4">2/4</option>
+                            <option value="6/8">6/8</option>
+                        </select>
+                    </div>
+                    <div class="setting-group">
+                        <label class="radio-group-label" data-i18n="setting.barlines">Тактовые черты:</label>
+                        <div class="radio-group">
+                            <label class="radio-label" data-i18n-title="setting.barlines.autoHint">
+                                <input type="radio" name="barline-mode" value="auto" checked>
+                                <span data-i18n="setting.barlines.auto">Автоматически</span>
+                            </label>
+                            <label class="radio-label" data-i18n-title="setting.barlines.manualHint">
+                                <input type="radio" name="barline-mode" value="manual">
+                                <span data-i18n="setting.barlines.manual">Вручную</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="control-group">
+                        <button id="btn-add-barline" class="btn-control" disabled data-i18n-title="btn.addBarline.hint">
+                            <i class="fas fa-plus"></i> <span data-i18n="btn.addBarline">Добавить черту</span>
+                        </button>
+                        <button id="btn-remove-barline" class="btn-control btn-danger" disabled data-i18n-title="btn.removeBarline.hint">
+                            <i class="fas fa-minus"></i> <span data-i18n="btn.removeBarline">Удалить черту</span>
+                        </button>
+                    </div>
+                </div>
+
+                    <h4 class="control-subtitle" data-i18n-title="panel.transpose.hint">
+                        <i class="fas fa-exchange-alt"></i> <span data-i18n="panel.transpose">Транспонирование</span>
+                    </h4>
+                    <div class="control-group">
+                        <button id="btn-transpose-up" class="btn-control" data-i18n-title="btn.transposeUp.hint">
+                            <i class="fas fa-arrow-up"></i> <span data-i18n="btn.transposeUp">Все вверх</span>
+                        </button>
+                        <button id="btn-transpose-down" class="btn-control" data-i18n-title="btn.transposeDown.hint">
+                            <i class="fas fa-arrow-down"></i> <span data-i18n="btn.transposeDown">Все вниз</span>
+                        </button>
+                    </div>
+
+                    <h4 class="control-subtitle" data-i18n-title="panel.presets.hint">
+                        <i class="fas fa-saxophone"></i> <span data-i18n="panel.presets">Инструменты</span>
+                    </h4>
+                    <div class="control-group preset-row">
+                        <button type="button" class="btn-preset" data-preset="soprano" data-app-shift="-2" data-sax-shift="-2" data-sounding="0"><span data-i18n="instrument.soprano">Сопрано</span> &minus;2</button>
+                        <button type="button" class="btn-preset" data-preset="alto" data-app-shift="-9" data-sax-shift="-9" data-sounding="0"><span data-i18n="instrument.alto">Альт</span> &minus;9</button>
+                        <button type="button" class="btn-preset" data-preset="tenor" data-app-shift="-14" data-sax-shift="-14" data-sounding="0"><span data-i18n="instrument.tenor">Тенор</span> &minus;14</button>
+                        <button type="button" class="btn-preset" data-preset="baritone" data-app-shift="-21" data-sax-shift="-21" data-sounding="0"><span data-i18n="instrument.baritone">Баритон</span> &minus;21</button>
+                        <button type="button" class="btn-preset" data-preset="guitar" data-app-shift="-12" data-sax-shift="-12" data-sounding="1"><span data-i18n="instrument.guitar">Гитара</span> &minus;12</button>
+                        <button type="button" class="btn-preset" data-preset="piano" data-app-shift="0" data-sax-shift="0" data-sounding="0"><span data-i18n="instrument.piano">Пианино</span> 0</button>
+                    </div>
+
+                    <h4 class="control-subtitle fine-head" id="fine-toggle" role="button" tabindex="0"
+                        aria-controls="fine-body" aria-expanded="false" data-i18n-title="panel.fine.hint">
+                        <i class="fas fa-sliders-h"></i> <span data-i18n="panel.fine">Тонкая настройка</span>
+                        <i class="fas fa-chevron-down fine-arrow"></i>
+                    </h4>
+                    <div class="fine-body" id="fine-body" hidden>
+                        <div class="setting-group">
+                            <label for="app-sound-shift"><span data-i18n="fine.app">Сдвиг звука приложения</span></label>
+                            <div class="control-group number-row">
+                                <button type="button" id="btn-app-shift-minus" class="btn-step">&minus;</button>
+                                <input type="number" id="app-sound-shift" class="number-input" min="-24" max="24" step="1"
+                                       value="-12" name="app-sound-shift" autocomplete="off" inputmode="numeric" data-i18n-title="fine.app.hint">
+                                <button type="button" id="btn-app-shift-plus" class="btn-step">+</button>
+                            </div>
+                        </div>
+                        <div class="setting-group">
+                            <label for="sax-sound-shift"><span data-i18n="fine.sax">Сдвиг звука инструмента</span></label>
+                            <div class="control-group number-row">
+                                <button type="button" id="btn-sax-shift-minus" class="btn-step">&minus;</button>
+                                <input type="number" id="sax-sound-shift" class="number-input" min="-24" max="24" step="1"
+                                       value="-12" name="sax-sound-shift" autocomplete="off" inputmode="numeric" data-i18n-title="fine.sax.hint">
+                                <button type="button" id="btn-sax-shift-plus" class="btn-step">+</button>
+                            </div>
+                        </div>
+                        <label class="checkbox-label" for="fingering-linked" data-i18n-title="fine.linked.hint">
+                            <input type="checkbox" id="fingering-linked">
+                            <i class="fas fa-link"></i> <span data-i18n="fine.linked">Показывать звучащие ноты</span>
+                        </label>
+                        <p class="instrument-example" id="instrument-example"></p>
+                    </div>
+                </div>
+
+                <div class="control-section">
+                    <h3 data-i18n-title="panel.settings.hint">
+                        <i class="fas fa-cog"></i> <span data-i18n="panel.settings">Настройки</span>
+                    </h3>
+
+                    <div class="setting-group">
+                        <label for="image-size-slider" data-i18n-title="setting.imageSize.hint">
+                            <i class="fas fa-expand-alt"></i> <span data-i18n="setting.imageSize">Размер картинок:</span>
+                            <span id="image-size-value">80px</span>
+                        </label>
+                        <input type="range" id="image-size-slider" min="50" max="200" value="80" class="slider"
+                               data-i18n-title="setting.imageSize.hint">
+                    </div>
+
+                    <div class="setting-group">
+                        <label for="show-note-names" class="checkbox-label" data-i18n-title="setting.noteNames.hint">
+                            <input type="checkbox" id="show-note-names" checked>
+                            <i class="fas fa-font"></i> <span data-i18n="setting.noteNames">Показывать названия нот</span>
+                        </label>
+                    </div>
+
+                    <div class="setting-group">
+                        <label for="show-fingerings" class="checkbox-label" data-i18n-title="setting.fingerings.hint">
+                            <input type="checkbox" id="show-fingerings" checked>
+                            <i class="fas fa-hands"></i> <span data-i18n="setting.fingerings">Показывать аппликатуры</span>
+                        </label>
+                    </div>
+
+                    <div class="setting-group">
+                        <label class="radio-group-label" data-i18n-title="setting.accidentals.hint">
+                            <i class="fas fa-sharp"></i> <span data-i18n="setting.accidentals">Отображение альтераций:</span>
+                        </label>
+                        <div class="radio-group">
+                            <label class="radio-label" data-i18n-title="setting.accidentals.sharpsHint">
+                                <input type="radio" name="accidentals-mode" value="sharps" checked>
+                                <span data-i18n="setting.accidentals.sharps">Диезы (#)</span>
+                            </label>
+                            <label class="radio-label" data-i18n-title="setting.accidentals.flatsHint">
+                                <input type="radio" name="accidentals-mode" value="flats">
+                                <span data-i18n="setting.accidentals.flats">Бемоли (b)</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+            </aside>
+
+            <!-- Центральная область с нотным станом -->
+            <section class="staff-area">
+                <div class="staff-container">
+                    <div class="staff-header">
+                        <div class="control-group staff-header-history"><button id="btn-undo" class="btn-control" disabled data-i18n-title="btn.undo.hint"><i class="fas fa-undo"></i> <span data-i18n="btn.undo">Отменить</span></button><button id="btn-redo" class="btn-control" disabled data-i18n-title="btn.redo.hint"><i class="fas fa-redo"></i> <span data-i18n="btn.redo">Вернуть</span></button></div>
+                        <div class="staff-info">
+                            <span id="measure-info"></span>
+                            
+                            <span id="fingering-count" class="staff-info-optional"></span>
+                            <span id="selected-note-info" data-i18n="staff.noSelection">Нет выделенной ноты</span>
+                        </div>
+                    </div>
+
+                    <!-- Строки стана. Строки строятся в JS: нота и её аппликатура
+                         всегда на одной строке, перенос - по границам тактов. -->
+                    <div class="scrollable-area">
+                        <div id="systems" class="systems"></div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Статусная строка -->
+        <footer class="app-footer">
+            <div class="status-bar">
+                <span id="status-message" data-i18n="status.ready">Готов к работе. Кликните на маркер позиции, чтобы добавить ноту.</span>
+                <span id="cache-status" class="cache-status"></span>
+                <span class="app-version">v1.9.0-a1</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Предупреждение о сохранении настроек в браузере -->
+    <div id="consent" class="consent" hidden>
+        <p data-i18n="consent.text">Чтобы открывать приложение на выбранном языке, настройка сохраняется в вашем браузере.</p>
+        <button type="button" id="consent-ok" class="btn-control btn-success" data-i18n="consent.ok">Понятно</button>
+    </div>
+
+    <!-- Помощь: как устроено приложение, что нажимать и что где лежит -->
+    <div id="help-modal" class="modal" hidden>
+        <div class="modal-backdrop" data-close-modal></div>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="help-title">
+            <div class="modal-head">
+                <h2 id="help-title" data-i18n="help.title">Справка</h2>
+                <button type="button" class="modal-close" data-close-modal data-i18n-title="help.close">&#10005;</button>
+            </div>
+            <div class="modal-body">
+                <p data-i18n="help.intro"></p>
+
+                <h3 data-i18n="help.startTitle"></h3>
+                <ol>
+                    <li data-i18n="help.start1"></li>
+                    <li data-i18n="help.start2"></li>
+                    <li data-i18n="help.start3"></li>
+                    <li data-i18n="help.start4"></li>
+                </ol>
+
+                <h3 data-i18n="help.notesTitle"></h3>
+                <ul>
+                    <li data-i18n="help.note1"></li>
+                    <li data-i18n="help.note2"></li>
+                    <li data-i18n="help.note3"></li>
+                    <li data-i18n="help.note4"></li>
+                    <li data-i18n="help.note5"></li>
+                </ul>
+
+                <h3 data-i18n="help.durTitle"></h3>
+                <ul>
+                    <li data-i18n="help.dur1"></li>
+                    <li data-i18n="help.dur2"></li>
+                    <li data-i18n="help.dur3"></li>
+                    <li data-i18n="help.dur4"></li>
+                </ul>
+
+                <h3 data-i18n="help.editTitle"></h3>
+                <ul>
+                    <li data-i18n="help.edit1"></li>
+                    <li data-i18n="help.edit2"></li>
+                    <li data-i18n="help.edit3"></li>
+                    <li data-i18n="help.edit4"></li>
+                    <li data-i18n="help.edit5"></li>
+                </ul>
+
+                <h3 data-i18n="help.playTitle"></h3>
+                <ul>
+                    <li data-i18n="help.play1"></li>
+                    <li data-i18n="help.play2"></li>
+                    <li data-i18n="help.play3"></li>
+                    <li data-i18n="help.play4"></li>
+                    <li data-i18n="help.play5"></li>
+                    <li data-i18n="help.play6"></li>
+                </ul>
+
+                <h3 data-i18n="help.trTitle"></h3>
+                <ul>
+                    <li data-i18n="help.tr1"></li>
+                    <li data-i18n="help.tr2"></li>
+                    <li data-i18n="help.tr3"></li>
+                    <li data-i18n="help.tr4"></li>
+                </ul>
+
+                <h3 data-i18n="help.goalTitle"></h3>
+                <ul>
+                    <li data-i18n="help.goal1"></li>
+                    <li data-i18n="help.goal2"></li>
+                    <li data-i18n="help.goal3"></li>
+                </ul>
+
+                <h3 data-i18n="help.filesTitle"></h3>
+                <ul>
+                    <li data-i18n="help.file1"></li>
+                    <li data-i18n="help.file2"></li>
+                    <li data-i18n="help.file3"></li>
+                    <li data-i18n="help.file4"></li>
+                    <li data-i18n="help.file5"></li>
+                </ul>
+
+                <h3 data-i18n="help.setTitle"></h3>
+                <ul>
+                    <li data-i18n="help.set1"></li>
+                    <li data-i18n="help.set2"></li>
+                    <li data-i18n="help.set3"></li>
+                    <li data-i18n="help.set4"></li>
+                    <li data-i18n="help.set5"></li>
+                </ul>
+
+                <h3 data-i18n="help.mobTitle"></h3>
+                <ul>
+                    <li data-i18n="help.mob1"></li>
+                    <li data-i18n="help.mob2"></li>
+                    <li data-i18n="help.mob3"></li>
+                </ul>
+
+                <h3 data-i18n="help.keysTitle"></h3>
+                <ul class="help-keys">
+                    <li><b>Space</b> &mdash; <span data-i18n="help.keyPlay"></span></li>
+                    <li><b>&larr; &rarr;</b> &mdash; <span data-i18n="help.keyMove"></span></li>
+                    <li><b>Shift + &uarr; &darr;</b> &mdash; <span data-i18n="help.keyPitch"></span></li>
+                    <li><b>Alt + &uarr; &darr;</b> &mdash; <span data-i18n="help.keyDuration"></span></li>
+                    <li><b>Delete</b> &mdash; <span data-i18n="help.keyDelete"></span></li>
+                    <li><b>Insert</b> &mdash; <span data-i18n="help.keyInsertNote"></span></li>
+                    <li><b>Shift + Insert</b> &mdash; <span data-i18n="help.keyInsertRest"></span></li>
+                    <li><b>Ctrl + Z</b> &mdash; <span data-i18n="help.keyUndo"></span></li>
+                    <li><b>Ctrl + Y</b> / <b>Ctrl + Shift + Z</b> &mdash; <span data-i18n="help.keyRedo"></span></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- О проекте -->
+    <div id="about-modal" class="modal" hidden>
+        <div class="modal-backdrop" data-close-modal></div>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="about-title">
+            <div class="modal-head">
+                <h2 id="about-title" data-i18n="about.title">О проекте</h2>
+                <button type="button" class="modal-close" data-close-modal data-i18n-title="about.close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p data-i18n="about.p1"></p>
+                <p data-i18n="about.p2"></p>
+                <p data-i18n="about.p3"></p>
+                <p data-i18n="about.p4"></p>
+                <p data-i18n="about.p5"></p>
+                <p data-i18n="about.p6"></p>
+                <p data-i18n="about.p7"></p>
+                <p data-i18n="about.p8"></p>
+                <!-- Адрес собирается в скрипте и только по нажатию: готовой
+                     ссылки и самого адреса в разметке нет -->
+                <p class="about-contact" id="about-contact">
+                    <span data-i18n="about.contact">Для связи</span>
+                    <button type="button" id="about-contact-show" class="about-contact-show"
+                            data-i18n="about.contactShow">показать адрес</button>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Скрипты -->
+    <script src="i18n.js?v=1.9.0-a1"></script>
+    <script src="note-symbols.js?v=1.9.0-a1"></script>
+    <script src="playback.js?v=1.9.0-a1"></script>
+    <script src="image-cache.js?v=1.9.0-a1"></script>
+    <script src="midi.js?v=1.9.0-a1"></script>
+    <script src="full-range-app.js?v=1.9.0-a1"></script>
+    <!-- Yandex.Metrika counter -->
+<script type="text/javascript">
+    (function(m,e,t,r,i,k,a){
+        m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+        m[i].l=1*new Date();
+        for (var j = 0; j < document.scripts.length; j++) {if (document.scripts[j].src === r) { return; }}
+        k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)
+    })(window, document,'script','https://mc.yandex.ru/metrika/tag.js?id=113385892', 'ym');
+
+    ym(113385892, 'init', {ssr:true, clickmap:true, referrer: document.referrer, url: location.href, accurateTrackBounce:true, trackLinks:true});
+</script>
+<noscript><div><img src="https://mc.yandex.ru/watch/113385892" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+<!-- /Yandex.Metrika counter -->
+    <div id="count-in" class="count-in" hidden aria-hidden="true"></div>
+</body>
+</html>

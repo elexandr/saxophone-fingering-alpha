@@ -1,0 +1,1477 @@
+/* Основные стили для Saxophone Fingering Assistant - Simple */
+
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background: #f5f5f5;
+    color: #333;
+    height: 100%;
+    overflow: hidden; /* Прокрутка живёт внутри областей */
+}
+
+.app-container {
+    width: 100%; /* Занимаем всю доступную ширину */
+    height: 100vh; /* запасной вариант для старых браузеров */
+    /* На телефоне и планшете адресная строка съедает часть экрана:
+       при 100vh низ уходил под неё и был недостижим. dvh - это
+       именно видимая высота окна */
+    height: 100dvh;
+    margin: 0; /* Убираем маржины */
+    background: white;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Заголовок: одна невысокая строка */
+.app-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-shrink: 0;
+}
+
+.app-header h1 {
+    margin: 0;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.app-info {
+    display: flex;
+    gap: 22px;
+    margin-left: auto;
+    font-size: 13px;
+}
+
+.info-item {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.info-label {
+    opacity: 0.85;
+    font-size: 12px;
+}
+
+.info-value {
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.app-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.lang-switch {
+    display: flex;
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.lang-btn {
+    padding: 5px 9px;
+    font-size: 12px;
+    font-weight: bold;
+    color: #ffffff;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    opacity: 0.72;
+}
+
+.lang-btn:hover {
+    background: rgba(255, 255, 255, 0.16);
+}
+
+.lang-btn.active {
+    background: #ffffff;
+    color: #5a67d8;
+    opacity: 1;
+}
+
+.btn-ghost {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.28);
+}
+
+/* Основной контент: занимает всю высоту под шапкой */
+.main-content {
+    display: flex;
+    padding: 10px;
+    gap: 10px;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Панель управления: на всю высоту области, со своим скроллом */
+.control-panel {
+    width: 190px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 12px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.control-section {
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.control-section:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.control-section h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    color: #495057;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.control-section h3 i {
+    color: #667eea;
+    width: 20px;
+}
+
+/* Кнопки */
+.control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.btn-control {
+    padding: 7px 10px;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.2s;
+    font-weight: 500;
+}
+
+.btn-control:hover {
+    background: #5a67d8;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.btn-control:active {
+    transform: translateY(0);
+}
+
+.btn-control:disabled {
+    background: #cbd5e0;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.btn-control.btn-danger {
+    background: #e53e3e;
+}
+
+.btn-control.btn-danger:hover {
+    background: #c53030;
+}
+
+.btn-control.btn-success {
+    background: #38a169;
+}
+
+.btn-control.btn-success:hover {
+    background: #2f855a;
+}
+
+/* Настройки */
+.setting-group {
+    margin-bottom: 12px;
+}
+
+.setting-group label {
+    display: flex;
+    flex-wrap: wrap; /* В узкой панели подпись и значение переносятся */
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    color: #495057;
+    cursor: pointer;
+}
+
+.setting-group label i {
+    color: #667eea;
+    width: 20px;
+}
+
+.slider {
+    width: 100%;
+    box-sizing: border-box;
+    height: 6px;
+    border-radius: 3px;
+    background: #e2e8f0;
+    outline: none;
+    -webkit-appearance: none;
+}
+
+.slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #667eea;
+    cursor: pointer;
+    border: 2px solid white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    line-height: 1.3;
+}
+
+.checkbox-label input {
+    margin: 2px 0 0 0;
+    flex-shrink: 0;
+}
+
+.radio-group-label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 14px;
+    color: #495057;
+}
+
+.radio-group {
+    display: flex;
+    flex-wrap: wrap; /* В узкой панели варианты переносятся на новую строку */
+    gap: 6px 14px;
+}
+
+.radio-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 14px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.radio-label input {
+    margin: 0;
+}
+
+.number-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    font-size: 14px;
+    color: #2d3748;
+    background: #ffffff;
+    border: 1px solid #cbd5e0;
+    border-radius: 5px;
+}
+
+.number-input:focus {
+    outline: 2px solid #667eea;
+    outline-offset: 1px;
+}
+
+.select-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    font-size: 14px;
+    color: #2d3748;
+    background: #ffffff;
+    border: 1px solid #cbd5e0;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.select-input:focus {
+    outline: 2px solid #667eea;
+    outline-offset: 1px;
+}
+
+.btn-control.active {
+    background: #38a169;
+}
+
+.btn-control.active:hover {
+    background: #2f855a;
+}
+
+/* Пояснения к разделам вынесены в подсказки при наведении */
+.control-section h3 {
+    cursor: help;
+}
+
+/* Область нотного стана */
+.staff-area {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.staff-container {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Область со скроллом. Запасной скролл остаётся для такта,
+   который не влезает в строку целиком. */
+.scrollable-area {
+    position: relative; /* система отсчёта для вспышки строки */
+    overflow: auto;
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Строки стана. Нота и её аппликатура всегда на одной строке,
+   перенос на следующую строку идёт по границам тактов. */
+.systems {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    width: 100%;
+}
+
+.system {
+    width: 100%;
+    box-sizing: border-box; /* Рамка входит в ширину, иначе строка шире области на 2px */
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: visible; /* Окошко длительности не должно обрезаться краем строки */
+}
+
+.staff-header {
+    background: #f8f9fa;
+    padding: 8px 12px;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.staff-header-history {
+    /* Откат и возврат стоят слева полосы над станом.
+       Раскладку задаём строкой: в боковой панели группы идут столбиком */
+    margin: 0;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+
+/* Узкий экран: второстепенные сведения убираем, иначе полоса над станом
+   переносится на вторую строку и отнимает высоту у стана */
+@media (max-width: 1100px) {
+    .staff-info-optional {
+        display: none;
+    }
+}
+
+/* Сводку не сжимаем и не переносим: она должна читаться одной строкой */
+.staff-header .staff-info {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.staff-header-buttons {
+    margin: 0;
+    flex-direction: row;
+    gap: 8px;
+}
+
+.staff-header h2 {
+    margin: 0;
+    font-size: 18px;
+    color: #2d3748;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.staff-info {
+    display: flex;
+    gap: 20px;
+    font-size: 14px;
+    color: #718096;
+}
+
+.staff-wrapper {
+    padding: 0; /* Убираем паддинги, чтобы нотный стан начинался от краев */
+    height: 310px; /* Сверху окошки длительности, снизу подписи; ниже C3 места не нужно */
+}
+
+.staff {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    background: white;
+    overflow: visible; /* Разрешаем переполнение для нот */
+}
+
+/* Скрипичный ключ в начале каждой строки.
+   Размер и положение посчитаны по метрикам глифа: контур занимает 0.80em над
+   базовой линией, 0.23em под ней и 0.51em вправо. Базовая линия при
+   line-height: 1 лежит на 0.915em от верха, а завиток ключа сидит на линейке G,
+   то есть на 0.113em выше базовой линии. Отсюда top = (220 + 0.113em) - 0.915em. */
+.staff-clef {
+    position: absolute;
+    left: 2px;
+    top: 127px;
+    font-family: 'Segoe UI Symbol', 'Apple Symbols', 'Noto Music', serif;
+    font-size: 116px;
+    line-height: 1;
+    color: #111111;
+    pointer-events: none;
+    user-select: none;
+}
+
+/* Элементы нотного стана */
+.staff-line {
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    height: 2px; /* Основные линии - 2px */
+    background: #000000; /* Основные линии - черные */
+}
+
+/* Дополнительные линии (создаются с opacity: 0.5 в JavaScript) */
+.staff-line[style*="opacity: 0.5"] {
+    height: 1px; /* Дополнительные линии - 1px */
+    background: #666666; /* Дополнительные линии - серые */
+}
+
+/* Тактовые черты */
+.bar-line {
+    position: absolute;
+    width: 2px;
+    background: #000000;
+    cursor: pointer;
+    z-index: 5;
+    transition: all 0.2s;
+}
+
+.bar-line:hover {
+    background: #e53e3e;
+    width: 3px;
+}
+
+.bar-line.selected {
+    background: #e53e3e;
+    width: 3px;
+    box-shadow: 0 0 5px rgba(229, 62, 62, 0.5);
+}
+
+/* Знаки репризы: |: в начале участка и :| в конце */
+.repeat-sign {
+    position: absolute;
+    width: 17px;
+    cursor: pointer;
+    z-index: 6;
+    transition: opacity 0.2s;
+}
+
+.repeat-sign:hover {
+    opacity: 0.7;
+}
+
+.repeat-bar {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: #000000;
+}
+
+.repeat-bar.thick {
+    width: 4px;
+}
+
+.repeat-bar.thin {
+    width: 1.5px;
+}
+
+.repeat-dot {
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #000000;
+}
+
+.repeat-dot.upper {
+    top: 28px;
+}
+
+.repeat-dot.lower {
+    top: 48px;
+}
+
+/* |: - толстая слева, точки справа */
+.repeat-sign.start .repeat-bar.thick {
+    left: 0;
+}
+
+.repeat-sign.start .repeat-bar.thin {
+    left: 8px;
+}
+
+.repeat-sign.start .repeat-dot {
+    left: 12px;
+}
+
+/* :| - точки слева, толстая справа */
+.repeat-sign.end .repeat-bar.thin {
+    left: 0;
+}
+
+.repeat-sign.end .repeat-bar.thick {
+    left: 5px;
+}
+
+.repeat-sign.end .repeat-dot {
+    left: 0;
+}
+
+.position-marker {
+    position: absolute;
+    width: calc(100% - 100px);
+    height: 30px;
+    left: 50px;
+    background: rgba(160, 174, 192, 0.02);
+    border: 1px dashed rgba(160, 174, 192, 0.1);
+    cursor: pointer;
+    border-radius: 3px;
+}
+
+.position-marker:hover {
+    background: rgba(160, 174, 192, 0.05);
+}
+
+/* Элемент мелодии: точка-якорь, вокруг которой размещаются знак ноты,
+   окошко длительности и подпись. Размеров не имеет, поэтому координаты
+   left/top задают ровно центр головки. */
+.note-anchor {
+    position: absolute;
+    width: 0;
+    height: 0;
+    z-index: 10;
+}
+
+.note-anchor.menu-open {
+    z-index: 60;
+}
+
+.glyph-svg {
+    position: absolute;
+    overflow: visible;
+    pointer-events: none;
+    cursor: pointer;
+}
+
+.glyph-halo {
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+/* Нота, которая не делится по границе такта */
+.note-anchor.crosses-boundary .glyph-halo {
+    opacity: 1;
+    stroke: #dd6b20;
+    stroke-dasharray: 3 3;
+}
+
+.note-anchor.crosses-boundary .note-label {
+    border-color: #dd6b20;
+    color: #9c4221;
+}
+
+.note-anchor.selected .glyph-halo {
+    opacity: 1;
+    stroke-dasharray: 5 3;
+}
+
+.note-anchor.playing .glyph-halo {
+    opacity: 1;
+    stroke-dasharray: none;
+    stroke-width: 3;
+}
+
+.note-anchor.playing .glyph-head,
+.note-anchor.playing .glyph-rest,
+.note-anchor.playing .glyph-dot {
+    fill: #e53e3e;
+    stroke: #e53e3e;
+}
+
+.note-anchor.playing .glyph-stem {
+    stroke: #e53e3e;
+}
+
+.note-anchor.playing .glyph-flag {
+    fill: #e53e3e;
+}
+
+.note-label {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    font-size: 10px;
+    font-weight: bold;
+    color: #2d3748;
+    background: rgba(255, 255, 255, 0.93);
+    border: 1px solid #e2e8f0;
+    border-radius: 3px;
+    padding: 1px 3px;
+    pointer-events: none;
+}
+
+.note-anchor.selected .note-label {
+    color: #fff;
+    background: #e53e3e;
+    border-color: #e53e3e;
+}
+
+.note-anchor[data-stem="up"] .note-label {
+    top: 14px;
+}
+
+.note-anchor[data-stem="down"] .note-label {
+    top: 52px;
+}
+
+/* Окошко длительности появляется при наведении на ноту или паузу */
+.duration-panel {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 1px 2px;
+    background: #ffffff;
+    border: 1px solid #cbd5e0;
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    white-space: nowrap;
+    z-index: 40; /* Выше карточек аппликатур, иначе окошко уходит под них */
+    opacity: 0;
+    /* Прячем не мгновенно, а с паузой: окошко стоит выше ноты, и без неё
+       до него не успеть - особенно когда штиль направлен вверх. Видимость
+       переключается с задержкой, поэтому во время паузы окошко ещё можно
+       навести мышью и удержать. */
+    visibility: hidden;
+    transition: opacity 0.12s ease, visibility 0s linear 0.4s;
+}
+
+/* На устройствах с мышью окошко показывается при наведении. На сенсорном
+   экране наведение залипает после касания, и окошко висело даже после снятия
+   выделения - там оно привязано к выделенной ноте */
+@media (hover: hover) {
+    .note-anchor:hover .duration-panel {
+        opacity: 1;
+        visibility: visible;
+        transition: opacity 0.12s ease, visibility 0s linear 0s;
+    }
+}
+
+@media (hover: none) {
+    .note-anchor.selected .duration-panel {
+        opacity: 1;
+        visibility: visible;
+        transition: opacity 0.12s ease, visibility 0s linear 0s;
+    }
+}
+
+.note-anchor.menu-open .duration-panel {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.12s ease, visibility 0s linear 0s;
+}
+
+.note-anchor[data-stem="up"] .duration-panel {
+    bottom: 54px;
+}
+
+.note-anchor[data-stem="down"] .duration-panel {
+    bottom: 18px;
+}
+
+/* У нот у верха стана места сверху нет: окошко уходит под шапку строки,
+   поэтому для них оно раскрывается вниз, под ноту */
+.note-anchor[data-high="1"] .duration-panel {
+    bottom: auto;
+    top: 26px;
+}
+
+.note-anchor[data-type="rest"] .duration-panel {
+    bottom: 34px;
+}
+
+.duration-btn {
+    min-width: 26px;
+    height: 20px;
+    padding: 0 3px;
+    font-size: 11px;
+    font-weight: bold;
+    line-height: 1;
+    color: #2d3748;
+    background: #edf2f7;
+    border: 1px solid #cbd5e0;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.duration-btn:hover {
+    background: #e2e8f0;
+}
+
+.dot-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 20px;
+    cursor: pointer;
+}
+
+.dot-toggle input {
+    margin: 0;
+    width: 12px;
+    height: 12px;
+    cursor: pointer;
+}
+
+/* Меню длительности: показывается поверх всего, поэтому позиционируется
+   от окна и переносится в body - иначе его обрезают контейнеры стана. */
+.duration-menu {
+    display: none;
+    padding: 3px;
+    background: #ffffff;
+    border: 1px solid #cbd5e0;
+    border-radius: 4px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+    z-index: 400;
+}
+
+.duration-menu.open {
+    display: block;
+    position: fixed;
+}
+
+.duration-option {
+    display: block;
+    width: 100%;
+    padding: 4px 10px;
+    font-size: 12px;
+    text-align: left;
+    white-space: nowrap;
+    color: #2d3748;
+    background: none;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.duration-option:hover {
+    background: #edf2f7;
+}
+
+.duration-option.active {
+    background: #667eea;
+    color: #ffffff;
+}
+
+/* Строка связи в окне «О проекте» */
+.about-contact {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.about-contact-show {
+    background: none;
+    border: 1px solid #cbd5e0;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 13px;
+    color: #2b6cb0;
+    cursor: pointer;
+}
+
+.about-contact-show:hover {
+    background: #ebf8ff;
+    border-color: #90cdf4;
+}
+
+.about-contact-link {
+    color: #2b6cb0;
+    font-weight: bold;
+    text-decoration: none;
+}
+
+.about-contact-link:hover {
+    text-decoration: underline;
+}
+
+/* Короткий экран: поджимаем всё, кроме стана, чтобы строке досталось больше места */
+@media (max-height: 760px) {
+    /* Кроме полос над станом поджимаем и панель: на планшете её содержимое
+       не помещается, и до нижних настроек приходилось долго крутить */
+    .control-panel {
+        padding: 6px;
+    }
+
+    .control-panel .control-group,
+    .control-panel .setting-group {
+        gap: 5px;
+        margin-bottom: 6px;
+    }
+
+    .control-panel .control-subtitle {
+        margin: 8px 0 4px;
+    }
+
+    .control-panel .btn-control {
+        padding: 5px 8px;
+    }
+
+    .app-header {
+        padding: 4px 12px;
+    }
+
+    .staff-header {
+        padding: 3px 10px;
+    }
+
+    .app-footer {
+        padding: 2px 12px;
+    }
+}
+
+/* Пустое место в ряду аппликатур напротив паузы: держит выравнивание по горизонтали */
+.fingering-spacer {
+    flex: 0 0 auto; /* Ширина ровно по шагу ноты, без сжатия */
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+}
+
+/* Управление нотами */
+.note-controls {
+    padding: 15px 20px;
+    background: #f8f9fa;
+    border-top: 1px solid #e2e8f0;
+}
+
+.note-controls .control-group {
+    flex-direction: row;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 15px; /* Добавляем расстояние между кнопками */
+}
+
+/* Аппликатуры: свой ряд под каждой строкой стана */
+.fingerings-row {
+    position: relative;
+    display: flex;
+    flex-wrap: nowrap; /* Убираем перенос внутри строки */
+    gap: 0; /* Убираем промежутки между карточками */
+    align-items: flex-start;
+    margin: 0; /* Убираем маржины */
+    padding: 0; /* Убираем паддинги */
+    min-height: 200px;
+    border-top: 1px solid #e2e8f0;
+}
+
+/* Граница такта в ряду аппликатур: продолжение тактовой черты.
+   Координату ставит JavaScript по краю самой карточки. */
+.measure-divider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #000000;
+    pointer-events: none;
+    z-index: 2;
+}
+
+/* Запас под последней строкой: позволяет подтянуть её к верху области.
+   Высоту задаёт JavaScript, кратно высоте строки. */
+.staff-tail {
+    width: 100%;
+    height: 0;
+    pointer-events: none;
+}
+
+.fingering-card {
+    position: relative; /* система отсчёта для слоя подсветки */
+    /* width: 150px; Убрано, чтобы JavaScript мог управлять размером */
+    flex: 0 0 auto; /* Ширина ровно по шагу ноты: сжатие ломает выравнивание */
+    border: 1px solid #e2e8f0;
+    border-radius: 0; /* Убираем скругления для плотного прилегания */
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: white;
+    margin: 0; /* Убираем маржины */
+    padding: 0; /* Убираем паддинги */
+}
+
+.fingering-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+/* Выделенная нота и нота, которая звучит сейчас */
+.fingering-card.selected {
+    border-color: #e53e3e;
+    box-shadow: 0 0 10px rgba(229, 62, 62, 0.3);
+}
+
+.fingering-card.playing {
+    /* Подсветка появляется мгновенно: у карточки transition: all, и анимация
+       свечения поверх картинки давала до десяти дорогих перерисовок на каждую
+       ноту. Из-за этого подсветка отставала, а потом догоняла рывками */
+    transition: none;
+    border-color: #e53e3e;
+}
+
+.note-indicator {
+    background: #667eea;
+    color: white;
+    text-align: center;
+    padding: 8px;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.fingering-image {
+    width: 100%;
+    height: auto;
+    display: block;
+    background: #f8f9fa;
+}
+
+.fingering-info {
+    padding: 10px;
+    background: #f8f9fa;
+    border-top: 1px solid #e2e8f0;
+}
+
+.fingering-name {
+    font-weight: bold;
+    color: #2d3748;
+    margin-bottom: 5px;
+    font-size: 14px;
+}
+
+.fingering-variant {
+    font-size: 12px;
+    color: #718096;
+}
+
+.fingering-placeholder {
+    width: 100%;
+    padding: 40px 20px;
+    text-align: center;
+    color: #a0aec0;
+}
+
+.placeholder-icon {
+    font-size: 48px;
+    margin-bottom: 15px;
+    color: #e2e8f0;
+}
+
+.placeholder-text {
+    font-size: 14px;
+}
+
+.variant-info {
+    padding: 0 15px;
+    font-weight: bold;
+    color: #667eea;
+    font-size: 14px;
+    min-width: 60px;
+    text-align: center;
+}
+
+/* Футер */
+.app-footer {
+    background: #f8f9fa;
+    padding: 6px 16px;
+    border-top: 1px solid #e2e8f0;
+    flex-shrink: 0;
+}
+
+.status-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: #718096;
+}
+
+.app-version {
+    font-weight: bold;
+    color: #667eea;
+}
+
+.cache-status {
+    margin-left: auto;
+    margin-right: 15px;
+    font-size: 12px;
+    color: #718096;
+}
+
+/* Анимации */
+.fade-in {
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from { 
+        opacity: 0; 
+        transform: translateY(10px); 
+    }
+    to { 
+        opacity: 1; 
+        transform: translateY(0); 
+    }
+}
+
+/* Адаптивность. Сайдбар остаётся слева при любой ширине. */
+@media (max-width: 1200px) {
+    .control-panel {
+        width: 165px;
+    }
+    
+    .app-info {
+        gap: 14px;
+    }
+}
+
+@media (max-width: 900px) {
+    .app-info {
+        display: none;
+    }
+    
+    .control-panel {
+        width: 150px;
+        padding: 10px;
+    }
+    
+    .staff-info {
+        gap: 10px;
+        font-size: 12px;
+    }
+}
+
+/* Скрытие рядов аппликатур */
+.systems.hide-fingerings .fingerings-row {
+    display: none;
+}
+
+/* Предупреждение о сохранении настроек в браузере */
+.consent {
+    position: fixed;
+    left: 50%;
+    bottom: 16px;
+    transform: translateX(-50%);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    max-width: min(680px, calc(100vw - 32px));
+    padding: 10px 14px;
+    background: #ffffff;
+    border: 1px solid #cbd5e0;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.consent[hidden] {
+    display: none;
+}
+
+.consent p {
+    margin: 0;
+    font-size: 13px;
+    color: #4a5568;
+}
+
+.consent .btn-control {
+    flex-shrink: 0;
+}
+
+/* Окно «О проекте» */
+.modal {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.modal[hidden] {
+    display: none;
+}
+
+.modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(26, 32, 44, 0.55);
+}
+
+.modal-card {
+    position: relative;
+    width: min(620px, 100%);
+    max-height: min(82vh, 720px);
+    display: flex;
+    flex-direction: column;
+    background: #ffffff;
+    border-radius: 10px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+}
+
+.modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 18px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #ffffff;
+}
+
+.modal-head h2 {
+    margin: 0;
+    font-size: 17px;
+}
+
+.modal-close {
+    padding: 0 4px;
+    font-size: 26px;
+    line-height: 1;
+    color: #ffffff;
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+.modal-close:hover {
+    opacity: 0.75;
+}
+
+.modal-body {
+    padding: 16px 18px;
+    overflow-y: auto;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #2d3748;
+}
+
+.modal-body p {
+    margin: 0 0 12px;
+}
+
+.modal-body p:last-child {
+    margin-bottom: 0;
+}
+/* Подраздел внутри раздела «Редактирование»: без своей рамки, только подпись */
+.control-subsection {
+    padding: 0;
+    border: 0;
+    margin: 0;
+}
+
+.control-subtitle {
+    margin: 14px 0 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #4a5568;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+/* Кнопки точек в окошке длительности: одна, две и три */
+.dot-choices {
+    display: flex;
+    gap: 2px;
+}
+
+.dot-choice {
+    min-width: 20px;
+    height: 20px;
+    padding: 0 4px;
+    border: 1px solid #cbd5e0;
+    border-radius: 3px;
+    background: #ffffff;
+    color: #4a5568;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.dot-choice.active {
+    border-color: #667eea;
+    background: #667eea;
+    color: #ffffff;
+}
+
+/* Номер такта: маленькая серая цифра над верхней линейкой */
+.measure-number {
+    position: absolute;
+    color: #a0aec0;
+    background: #ffffff;
+    padding: 0 2px;
+    border-radius: 2px;
+    font-size: 11px;
+    line-height: 1;
+    pointer-events: none;
+    user-select: none;
+}
+/* Строки вне экрана браузер не рисует: иначе прокрутка к следующей строке
+   перерисовывает весь ряд картинок и подсветка отстаёт рывками */
+.system {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 520px;
+}
+
+/* Вспышка на строке, к которой перешла игра. Смену строки видно сразу,
+   даже если плавная прокрутка где-то отстала. Анимируется только прозрачность,
+   поэтому кадры на неё не тратятся. */
+.line-flash {
+    position: absolute;
+    left: 0;
+    right: 0;
+    pointer-events: none;
+    background: rgba(102, 126, 234, 0.10);
+    opacity: 0;
+    transition: opacity 0.45s ease-out;
+    z-index: 5;
+}
+
+.line-flash.on {
+    opacity: 1;
+    transition: none;
+}
+
+/* Отсчёт перед началом: крупные полупрозрачные цифры по центру. Мышь не
+   ловят и ничего не перекрывают - только показывают, сколько ждать. */
+.count-in {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26vmin;
+    font-weight: 700;
+    color: rgba(102, 126, 234, 0.35);
+    pointer-events: none;
+    user-select: none;
+    z-index: 100;
+}
+
+.count-in[hidden] {
+    display: none;
+}
+
+/* Подсветка карточки: рамка рисуется ВНУТРИ. У карточки overflow: hidden,
+   поэтому внешнее свечение обрезалось и подсветку было почти не видно.
+   Внутренняя рамка ничего не сдвигает - соответствие нотам сохраняется.
+   Анимируется только прозрачность, это делает композитор. */
+.fingering-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    box-shadow: inset 0 0 0 3px #e53e3e, inset 0 0 12px rgba(229, 62, 62, 0.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease-out;
+}
+
+.fingering-card.playing::after {
+    opacity: 1;
+}
+/* Справка: разделы и списки. Окно длинное, поэтому заголовки должны
+   читаться как оглавление, а не сливаться с текстом */
+.modal-body h3 {
+    margin: 16px 0 6px;
+    font-size: 15px;
+    color: #2d3748;
+}
+
+.modal-body h3:first-of-type {
+    margin-top: 10px;
+}
+
+.modal-body ul,
+.modal-body ol {
+    margin: 0 0 10px;
+    padding-left: 22px;
+}
+
+.modal-body li {
+    margin-bottom: 5px;
+    line-height: 1.45;
+}
+
+.help-keys b {
+    color: #4a5568;
+    white-space: nowrap;
+}
+/* Поле с кнопками «минус» и «плюс»: темп и сдвиг инструмента */
+.number-row {
+    flex-direction: row; /* кнопки минус и плюс стоят по бокам поля */
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.number-row .number-input {
+    width: 70px;
+    text-align: center;
+}
+
+.btn-step {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    font-size: 17px;
+    line-height: 1;
+    border: 1px solid #cbd5e0;
+    border-radius: 6px;
+    background: #fff;
+    color: #2d3748;
+    cursor: pointer;
+}
+
+.btn-step:hover {
+    border-color: #667eea;
+    color: #667eea;
+}
+
+/* Кнопки типовых саксофонов: по две в ряд */
+.preset-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.btn-preset {
+    flex: 1 1 46%;
+    padding: 6px 4px;
+    font-size: 11px;
+    border: 1px solid #cbd5e0;
+    border-radius: 6px;
+    background: #fff;
+    color: #2d3748;
+    cursor: pointer;
+}
+
+.btn-preset:hover {
+    border-color: #667eea;
+    background: #f7fafc;
+}
+/* Наглядный пример: как звучит до на стане при текущем сдвиге */
+.instrument-example {
+    margin: 6px 0 0;
+    font-size: 11px;
+    color: #718096;
+}
+
+/* Пресет, совпавший с тонкой настройкой, горит зелёным */
+.btn-preset.active {
+    border-color: #38a169;
+    background: #f0fff4;
+    color: #276749;
+    font-weight: 600;
+}
+
+/* Сворачиваемая тонкая настройка */
+.fine-head {
+    cursor: pointer;
+    user-select: none;
+}
+
+.fine-head .fine-arrow {
+    float: right;
+    font-size: 11px;
+    line-height: 18px;
+    transition: transform 0.15s ease;
+}
+
+.fine-head[aria-expanded="true"] .fine-arrow {
+    transform: rotate(180deg);
+}
+
+.fine-body[hidden] {
+    display: none;
+}
