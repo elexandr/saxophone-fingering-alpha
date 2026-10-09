@@ -51,6 +51,10 @@ class FullRangeStaffManager {
         this.history = [];
         this.redoHistory = [];
         this.restoring = false;
+        // Множественное выделение: набор выбранных нот и якорь диапазона.
+        // selectedNoteId остаётся активной нотой - на неё смотрит прочая логика
+        this.selectedIds = [];
+        this.selectionAnchorId = null;
         this.selectedBarLineId = null;
         this.showNoteNames = true;
         this.showFingerings = true; // Показывать ряды аппликатур под станом
@@ -949,7 +953,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         
         anchor.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.selectNote(element.id);
+            // Shift - диапазон, Ctrl - добавить или убрать одну ноту
+            this.selectNote(element.id, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey });
             // По клику слышно высоту ноты. Именно по клику, а не при выделении:
             // выделение ставится и программно - при загрузке мелодии, удалении,
             // перестановке, - и звук там был бы лишним.
@@ -1182,24 +1187,43 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         }, 50);
     }
     
-    selectNote(noteId) {
-        if (this.selectedNoteId === noteId) {
+    selectNote(noteId, options = {}) {
+        const clicked = this.notes.find(n => n.id === noteId);
+        if (!clicked) return;
+
+        // Ctrl - добавить или убрать одну ноту, Shift - выделить диапазон
+        if (options.toggle) { this.toggleNoteSelection(noteId); return; }
+        if (options.range && this.selectionAnchorId) { this.selectRangeTo(noteId); return; }
+
+        // Обычный клик: одна нота. Повторный клик по ней снимает выделение
+        if (this.selectedNoteId === noteId && this.selectedIds.length <= 1) {
             this.deselectNote();
             return;
         }
+
+        this.clearSelectionMarks();
         
-        this.deselectNote();
-        
-        const note = this.notes.find(n => n.id === noteId);
-        if (!note) return;
-        
-        note.element.classList.add('selected');
+        this.setNoteSelected(noteId, true);
         this.selectedNoteId = noteId;
+        this.selectionAnchorId = noteId;
+        this.afterSelectionChange();
+    }
+
+    // Отрисовка выделения в одном месте - и для одной ноты, и для набора
+    afterSelectionChange() {
+        const note = this.notes.find(n => n.id === this.selectedNoteId);
+        if (!note) { this.deselectNote(); return; }
+        if (!this.selectionAnchorId) this.selectionAnchorId = note.id;
+        const many = this.selectedIds.length > 1;
         
-        document.getElementById('selected-note').textContent = note.isRest ? t('rest.word') : note.displayName;
-        document.getElementById('selected-note-info').textContent = note.isRest
+        document.getElementById('selected-note').textContent = many
+            ? t('status.selectedMany', { n: this.selectedIds.length })
+            : (note.isRest ? t('rest.word') : note.displayName);
+        document.getElementById('selected-note-info').textContent = many
+            ? t('status.selectedManyHint')
+            : (note.isRest
             ? t(note.dotted ? 'rest.infoDotted' : 'rest.info', { name: this.durationLabel(note.duration) })
-            : `${note.displayName} (позиция ${note.positionId})`;
+            : `${note.displayName} (позиция ${note.positionId})`);
         
         // Включаем кнопки управления нотой; у паузы высоты нет
         document.getElementById('btn-note-up').disabled = note.isRest;
@@ -1214,21 +1238,19 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // Обновляем аппликатуры
         this.updateFingering(note);
         
-        this.updateStatus(note.isRest ? t('status.selectedRest') : t('status.selectedNote', { name: note.displayName }));
+        this.updateStatus(many
+            ? t('status.selectedMany', { n: this.selectedIds.length })
+            : (note.isRest ? t('status.selectedRest') : t('status.selectedNote', { name: note.displayName })));
     }
     
     deselectNote() {
         // Снимаем выделение - убираем и окошко длительности: на планшете
         // оно оставалось открытым после повторного нажатия по ноте
         this.closeDurationMenus();
-        if (this.selectedNoteId) {
-            const note = this.notes.find(n => n.id === this.selectedNoteId);
-            if (note) {
-                note.element.classList.remove('selected');
-            }
-        }
+        this.clearSelectionMarks();
         
         this.selectedNoteId = null;
+        this.selectionAnchorId = null;
         document.getElementById('selected-note').textContent = t('app.none');
         document.getElementById('selected-note-info').textContent = t('staff.noSelection');
         
@@ -1245,6 +1267,85 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.updateStatus(t('status.deselected'));
     }
     
+    // === Множественное выделение ===
+
+    isNoteSelected(noteId) {
+        return this.selectedIds.indexOf(noteId) >= 0;
+    }
+
+    // Пометить ноту выбранной или снять пометку
+    setNoteSelected(noteId, on) {
+        const note = this.notes.find(n => n.id === noteId);
+        if (!note || !note.element) return;
+        
+        if (on) {
+            note.element.classList.add('selected');
+            if (!this.isNoteSelected(noteId)) this.selectedIds.push(noteId);
+        } else {
+            note.element.classList.remove('selected');
+            this.selectedIds = this.selectedIds.filter(id => id !== noteId);
+        }
+    }
+
+    // Снять пометки со всех, набор очистить
+    clearSelectionMarks() {
+        this.selectedIds.forEach(id => {
+            const note = this.notes.find(n => n.id === id);
+            if (note && note.element) note.element.classList.remove('selected');
+        });
+        this.selectedIds = [];
+    }
+
+    // Ctrl+клик: нота входит в набор или выходит из него
+    toggleNoteSelection(noteId) {
+        if (this.isNoteSelected(noteId)) {
+            this.setNoteSelected(noteId, false);
+            if (this.selectedNoteId === noteId) {
+                this.selectedNoteId = this.selectedIds[this.selectedIds.length - 1] || null;
+            }
+            if (!this.selectedNoteId) { this.deselectNote(); return; }
+        } else {
+            this.setNoteSelected(noteId, true);
+            this.selectedNoteId = noteId;
+        }
+        this.afterSelectionChange();
+    }
+
+    // Shift+клик: диапазон от якоря до указанной ноты
+    selectRangeTo(noteId) {
+        const from = this.notes.findIndex(n => n.id === this.selectionAnchorId);
+        const to = this.notes.findIndex(n => n.id === noteId);
+        if (from < 0 || to < 0) return;
+        
+        this.clearSelectionMarks();
+        const first = Math.min(from, to);
+        const last = Math.max(from, to);
+        for (let i = first; i <= last; i++) this.setNoteSelected(this.notes[i].id, true);
+        this.selectedNoteId = noteId;
+        this.afterSelectionChange();
+    }
+
+    // Shift+стрелка: расширить выделение на соседнюю ноту, якорь не двигаем
+    extendSelectionBy(direction) {
+        if (!this.selectedNoteId || !this.selectionAnchorId) return false;
+        const current = this.notes.findIndex(n => n.id === this.selectedNoteId);
+        const next = current + direction;
+        if (current < 0 || next < 0 || next >= this.notes.length) return false;
+        this.selectRangeTo(this.notes[next].id);
+        return true;
+    }
+
+    // Ctrl+A: выделить всю мелодию
+    selectAllNotes() {
+        if (!this.notes.length) return false;
+        this.clearSelectionMarks();
+        this.notes.forEach(note => this.setNoteSelected(note.id, true));
+        this.selectedNoteId = this.notes[this.notes.length - 1].id;
+        this.selectionAnchorId = this.notes[0].id;
+        this.afterSelectionChange();
+        return true;
+    }
+
     updateNoteCount() {
         const notes = this.notes.filter(n => !n.isRest).length;
         const rests = this.notes.length - notes;
@@ -3985,6 +4086,29 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         
+        // Ctrl+A - выделить всю мелодию
+        if ((event.ctrlKey || event.metaKey) && !event.altKey &&
+            (event.code === 'KeyA' || (event.key || '').toLowerCase() === 'a' || event.key === 'ф')) {
+            event.preventDefault();
+            staffManager.selectAllNotes();
+            return;
+        }
+
+        // Escape - снять выделение
+        if (event.key === 'Escape' && staffManager.selectedNoteId) {
+            staffManager.deselectNote();
+            return;
+        }
+
+        // Shift+влево или вправо - расширить выделение на соседнюю ноту
+        if (event.shiftKey && !event.ctrlKey && !event.altKey &&
+            (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+            if (staffManager.extendSelectionBy(event.key === 'ArrowRight' ? 1 : -1)) {
+                event.preventDefault();
+                return;
+            }
+        }
+
         const isSpace = event.key === ' ' || event.code === 'Space';
         
         if (isSpace) {
