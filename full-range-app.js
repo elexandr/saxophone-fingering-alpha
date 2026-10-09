@@ -53,6 +53,7 @@ class FullRangeStaffManager {
         this.restoring = false;
         // Множественное выделение: набор выбранных нот и якорь диапазона.
         // selectedNoteId остаётся активной нотой - на неё смотрит прочая логика
+        this.clipboard = null; // буфер обмена для копирования нот
         this.selectedIds = [];
         this.selectionAnchorId = null;
         // Планшет: долгое нажатие ставит якорь, второе касание задаёт конец
@@ -1768,25 +1769,145 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     }
     
     deleteSelectedNote() {
-        if (!this.selectedNoteId) return false;
-        
-        const noteIndex = this.notes.findIndex(n => n.id === this.selectedNoteId);
-        if (noteIndex === -1) return false;
-        
-        const note = this.notes[noteIndex];
+        const targets = this.selectedElements();
+        if (!targets.length) return false;
         
         this.pushHistory();
-        note.element.remove();
-        this.notes.splice(noteIndex, 1);
+        targets.forEach(note => {
+            const index = this.notes.indexOf(note);
+            if (index >= 0) {
+                note.element.remove();
+                this.notes.splice(index, 1);
+            }
+        });
         
+        const count = targets.length;
+        const first = targets[0];
         this.deselectNote();
         this.relayout();
         
-        this.updateStatus(note.isRest ? t('status.restDeleted') : t('status.noteDeleted', { name: note.displayName }));
+        this.updateStatus(count > 1
+            ? t('status.notesDeleted', { n: count })
+            : (first.isRest ? t('status.restDeleted') : t('status.noteDeleted', { name: first.displayName })));
         this.scheduleAutosave();
         return true;
     }
     
+    // === Операции над набором ===
+
+    // Выбранные элементы в порядке мелодии
+    selectedElements() {
+        return this.notes.filter(note => this.isNoteSelected(note.id));
+    }
+
+    // Снимок элемента для буфера обмена
+    elementSnapshot(note) {
+        return {
+            isRest: !!note.isRest,
+            noteName: note.noteName,
+            displayName: note.displayName,
+            positionId: note.positionId,
+            duration: note.duration,
+            dotted: Playback.dotCount(note.dotted),
+            currentVariant: note.currentVariant || 1
+        };
+    }
+
+    // Смещение высоты у всего набора: у одной ноты работает как раньше
+    changeSelectionPitch(direction) {
+        const targets = this.selectedElements().filter(note => !note.isRest);
+        if (targets.length <= 1) return this.changeSelectedNotePitch(direction);
+        
+        this.pushHistory();
+        let moved = 0;
+        targets.forEach(note => {
+            const name = this.getNextNoteInSequence(note.noteName, direction);
+            if (name === note.noteName) return;
+            const info = this.getNoteInfoByName(name);
+            const position = this.positions.find(p => p.id === info.positionId);
+            if (!position) return;
+            
+            note.positionId = info.positionId;
+            note.noteName = name;
+            note.displayName = info.displayName;
+            note.accidental = this.accidentalOf(info.displayName);
+            note.fingeringBase = info.fingering ? info.fingering.replace(/_v\d+\.jpg$/, '') : null;
+            note.hasFingering = info.hasFingering;
+            note.variants = info.variants || 1;
+            note.currentVariant = Math.min(note.currentVariant || 1, note.variants);
+            note.fingering = note.fingeringBase ? `${note.fingeringBase}_v${note.currentVariant}.jpg` : null;
+            note.y = position.y;
+            note.stemUp = position.y > STAFF_MIDDLE_LINE_Y;
+            note.element.style.top = position.y + 'px';
+            note.element.setAttribute('data-stem', note.stemUp ? 'up' : 'down');
+            note.element.setAttribute('data-position-id', info.positionId);
+            this.syncHighFlag(note.element, position.y);
+            const label = note.element.querySelector('.note-label');
+            if (label) label.textContent = this.displayNoteName(info.displayName);
+            this.refreshElement(note);
+            moved++;
+        });
+        
+        this.afterSelectionChange();
+        this.relayout();
+        this.updateStatus(t('status.pitchChangedMany', { n: moved }));
+        this.scheduleAutosave();
+        return moved > 0;
+    }
+
+    // Копировать выбранное
+    copySelection() {
+        const targets = this.selectedElements();
+        if (!targets.length) return false;
+        this.clipboard = targets.map(note => this.elementSnapshot(note));
+        this.updateStatus(t('status.copied', { n: this.clipboard.length }));
+        return true;
+    }
+
+    // Вырезать: копируем и удаляем
+    cutSelection() {
+        if (!this.copySelection()) return false;
+        const count = this.clipboard.length;
+        this.deleteSelectedNote();
+        this.updateStatus(t('status.cut', { n: count }));
+        return true;
+    }
+
+    // Вставить сразу после последнего выбранного, иначе в конец мелодии
+    pasteClipboard() {
+        if (!this.clipboard || !this.clipboard.length) {
+            this.updateStatus(t('status.clipboardEmpty'));
+            return false;
+        }
+        
+        const selected = this.selectedElements();
+        let insertAt = this.notes.length;
+        if (selected.length) insertAt = this.notes.indexOf(selected[selected.length - 1]) + 1;
+        
+        this.pushHistory();
+        this.clipboard.forEach(snapshot => {
+            let id;
+            if (snapshot.isRest) {
+                id = this.addRest(insertAt, { silent: true });
+            } else {
+                const info = this.getNoteInfoByName(snapshot.noteName);
+                id = this.addNote(info.positionId, snapshot.noteName, insertAt, { silent: true });
+            }
+            const element = this.notes.find(n => n.id === id);
+            if (element) {
+                if (snapshot.duration) this.setElementDuration(element, snapshot.duration);
+                if (snapshot.dotted) this.setElementDotted(element, snapshot.dotted);
+                element.currentVariant = snapshot.currentVariant || 1;
+            }
+            insertAt++;
+        });
+        
+        this.relayout();
+        this.updateStatus(t('status.pasted', { n: this.clipboard.length }));
+        this.scheduleAutosave();
+        return true;
+    }
+
     clearAllNotes() {
         this.notes.forEach(note => {
             note.element.remove();
@@ -3796,11 +3917,11 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Управление нотами
     document.getElementById('btn-note-up').addEventListener('click', () => {
-        staffManager.changeSelectedNotePitch(1);
+        staffManager.changeSelectionPitch(1);
     });
     
     document.getElementById('btn-note-down').addEventListener('click', () => {
-        staffManager.changeSelectedNotePitch(-1);
+        staffManager.changeSelectionPitch(-1);
     });
     
     document.getElementById('btn-insert-note').addEventListener('click', () => {
@@ -4135,6 +4256,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 staffManager.redo();
                 return;
             }
+
+            // Копировать, вырезать, вставить. Клавишу берём по позиции:
+            // на русской раскладке те же клавиши дают с, ч, м
+            const isC = event.code === 'KeyC' || key === 'c' || key === 'с';
+            const isX = event.code === 'KeyX' || key === 'x' || key === 'ч';
+            const isV = event.code === 'KeyV' || key === 'v' || key === 'м';
+
+            if (isC) { event.preventDefault(); staffManager.copySelection(); return; }
+            if (isX) { event.preventDefault(); staffManager.cutSelection(); return; }
+            if (isV) { event.preventDefault(); staffManager.pasteClipboard(); return; }
         }
         
         // Ctrl+A - выделить всю мелодию
@@ -4206,7 +4337,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Shift со стрелкой вверх или вниз - смена высоты ноты
         if (event.shiftKey && (isUp || isDown)) {
             event.preventDefault();
-            staffManager.changeSelectedNotePitch(isUp ? 1 : -1);
+            staffManager.changeSelectionPitch(isUp ? 1 : -1);
             return;
         }
         
