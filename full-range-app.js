@@ -1660,16 +1660,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.applyMelody(target);
         this.restoring = false;
         
-        if (scrollArea) {
-            scrollArea.scrollTop = scrollTop;
-            scrollArea.scrollLeft = scrollLeft;
-            // Строки перестраиваются не мгновенно, поэтому повторяем после кадра:
-            // иначе откат возвращает к началу пьесы
-            requestAnimationFrame(() => {
-                scrollArea.scrollTop = scrollTop;
-                scrollArea.scrollLeft = scrollLeft;
-            });
-        }
+
         
         // Выделение берём из восстановленного состояния, а не из текущего:
         // иначе после добавления или вставки выделять было бы нечего
@@ -1678,6 +1669,20 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             this.selectNote(this.notes[restoreIndex].id);
         }
         
+        // Прокрутку возвращаем в самом конце: перестройка строк и выделение
+        // ноты сдвигают вид после восстановления, поэтому возвращаем место
+        // несколько раз - сразу, после кадра и после того, как строки устоятся
+        if (scrollArea) {
+            const keep = () => {
+                scrollArea.scrollLeft = scrollLeft;
+                scrollArea.scrollTop = scrollTop;
+            };
+            keep();
+            requestAnimationFrame(keep);
+            setTimeout(keep, 60);
+            setTimeout(keep, 200);
+        }
+
         this.updateHistoryButtons();
         this.updateStatus(t(doneKey));
         this.scheduleAutosave();
