@@ -1953,16 +1953,21 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
     // === Рисование лиг и триолей ===
 
-    // Геометрия ноты: где она стоит внутри своей системы
-    noteBox(note) {
+    // Геометрия ноты внутри системы. Меряем сам нотный знак: у якоря есть
+    // ещё подпись ноты и окошко длительности, из-за них центр уезжает
+    noteBox(note, systemRect) {
         const el = note.element;
-        const width = el.offsetWidth || 40;
-        const left = parseFloat(el.style.left);
+        const glyph = el.querySelector('svg, img, canvas, .note-glyph') || el;
+        const rect = glyph.getBoundingClientRect();
+        const left = rect.left - systemRect.left;
+        const top = rect.top - systemRect.top;
         return {
-            left: isNaN(left) ? (el.offsetLeft || 0) : left,
-            width: width,
-            center: (isNaN(left) ? (el.offsetLeft || 0) : left) + width / 2,
-            y: note.y
+            left: left,
+            width: rect.width,
+            height: rect.height,
+            center: left + rect.width / 2,
+            headY: top + rect.height / 2,
+            top: top
         };
     }
 
@@ -1977,6 +1982,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             const notes = this.notes.filter(n => n.element && !n.isRest && system.contains(n.element));
             if (!notes.length) return;
 
+            const systemRect = system.getBoundingClientRect();
             const shapes = [];
 
             // Связующие лиги: между соседними нотами одной высоты
@@ -1984,7 +1990,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 if (!note.tiedToNext) return;
                 const next = notes[index + 1];
                 if (!next || next.noteName !== note.noteName) return;
-                shapes.push(this.tieArc(note, next));
+                shapes.push(this.tieArc(note, next, systemRect));
             });
 
             // Фразировочные лиги: от начала до конца
@@ -1992,7 +1998,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             notes.forEach(note => {
                 if (note.slurStart) openSlur = note;
                 if (note.slurEnd && openSlur) {
-                    if (openSlur !== note) shapes.push(this.slurArc(openSlur, note, notes));
+                    if (openSlur !== note) shapes.push(this.slurArc(openSlur, note, notes, systemRect));
                     openSlur = null;
                 }
             });
@@ -2006,7 +2012,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 }
                 const nextRatio = notes[index + 1] ? notes[index + 1].tuplet : null;
                 if (group && (!nextRatio || nextRatio.actual !== group.actual)) {
-                    shapes.push(this.tupletBracket(group.start, note, group.actual));
+                    shapes.push(this.tupletBracket(group.start, note, group.actual, systemRect));
                     group = null;
                 }
             });
@@ -2024,47 +2030,50 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         });
     }
 
-    tieArc(note, next) {
-        const a = this.noteBox(note);
-        const b = this.noteBox(next);
+    tieArc(note, next, systemRect) {
+        const a = this.noteBox(note, systemRect);
+        const b = this.noteBox(next, systemRect);
         // Лига идёт с противоположной стороны от штиля, как принято в нотах
         const below = !!note.stemUp;
-        const offset = below ? 13 : -13;
-        const lift = below ? 8 : -8;
-        const y1 = a.y + offset;
-        const y2 = b.y + offset;
-        const x1 = a.left + a.width * 0.6;
-        const x2 = b.left + b.width * 0.4;
+        const offset = below ? 11 : -11;
+        const lift = below ? 7 : -7;
+        const y1 = a.headY + offset;
+        const y2 = b.headY + offset;
+        // Концы дуги садим на края головок, а не в их середины
+        const x1 = a.left + a.width * 0.62;
+        const x2 = b.left + b.width * 0.38;
         return '<path class="tie" d="M ' + x1.toFixed(1) + ' ' + y1.toFixed(1) +
             ' C ' + (x1 + (x2 - x1) / 3).toFixed(1) + ' ' + (y1 + lift).toFixed(1) + ', ' +
             (x1 + 2 * (x2 - x1) / 3).toFixed(1) + ' ' + (y2 + lift).toFixed(1) + ', ' +
             x2.toFixed(1) + ' ' + y2.toFixed(1) + '"/>';
     }
 
-    slurArc(from, to, notes) {
-        const a = this.noteBox(from);
-        const b = this.noteBox(to);
+    slurArc(from, to, notes, systemRect) {
+        const a = this.noteBox(from, systemRect);
+        const b = this.noteBox(to, systemRect);
         const between = notes.filter(n => {
-            const box = this.noteBox(n);
+            const box = this.noteBox(n, systemRect);
             return box.center > a.center && box.center < b.center;
         });
-        const tops = [a.y, b.y].concat(between.map(n => n.y));
+        const heads = [a.headY, b.headY].concat(between.map(n => this.noteBox(n, systemRect).headY));
         // Фразировочная лига тоже идёт со стороны, свободной от штилей
         const above = !from.stemUp;
-        const base = above ? Math.min.apply(null, tops) - 20 : Math.max.apply(null, tops) + 20;
-        const lift = above ? -24 : 24;
-        const y1 = base + (above ? 4 : -4);
-        return '<path class="slur" d="M ' + a.center.toFixed(1) + ' ' + y1.toFixed(1) +
-            ' C ' + (a.center + (b.center - a.center) / 3).toFixed(1) + ' ' + (base + lift).toFixed(1) + ', ' +
-            (a.center + 2 * (b.center - a.center) / 3).toFixed(1) + ' ' + (base + lift).toFixed(1) + ', ' +
-            b.center.toFixed(1) + ' ' + y1.toFixed(1) + '"/>';
+        const base = above ? Math.min.apply(null, heads) - 18 : Math.max.apply(null, heads) + 18;
+        const lift = above ? -22 : 22;
+        // Концы дуги садим на края головок
+        const x1 = a.left + a.width * 0.5;
+        const x2 = b.left + b.width * 0.5;
+        return '<path class="slur" d="M ' + x1.toFixed(1) + ' ' + base.toFixed(1) +
+            ' C ' + (x1 + (x2 - x1) / 3).toFixed(1) + ' ' + (base + lift).toFixed(1) + ', ' +
+            (x1 + 2 * (x2 - x1) / 3).toFixed(1) + ' ' + (base + lift).toFixed(1) + ', ' +
+            x2.toFixed(1) + ' ' + base.toFixed(1) + '"/>';
     }
 
-    tupletBracket(from, to, actual) {
-        const a = this.noteBox(from);
-        const b = this.noteBox(to);
+    tupletBracket(from, to, actual, systemRect) {
+        const a = this.noteBox(from, systemRect);
+        const b = this.noteBox(to, systemRect);
         const above = !from.stemUp;
-        const y = above ? Math.min(a.y, b.y) - 30 : Math.max(a.y, b.y) + 30;
+        const y = above ? Math.min(a.headY, b.headY) - 32 : Math.max(a.headY, b.headY) + 32;
         const x1 = a.left + a.width * 0.35;
         const x2 = b.left + b.width * 0.65;
         const tick = above ? 6 : -6;
