@@ -3961,7 +3961,15 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         }
     }
     
+    // Одна кнопка «Открыть»: формат определяем по имени файла
     loadFromFile(file) {
+        const name = (file && file.name ? file.name : '').toLowerCase();
+
+        if (/\.(mid|midi)$/.test(name)) return this.readMidiFile(file);
+        if (/\.mxl$/.test(name)) return this.loadPackedMusicXml(file);
+        if (/\.(musicxml|xml)$/.test(name)) return this.loadMusicXmlText(file);
+
+        // Всё остальное - старый формат приложения, обратная совместимость
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             
@@ -3984,6 +3992,161 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             
             reader.readAsText(file);
         });
+    }
+
+    // MusicXML обычным текстом
+    loadMusicXmlText(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    this.applyMusicXml(String(e.target.result));
+                    resolve(true);
+                } catch (error) {
+                    this.updateStatus(t('status.fileLoadError', { message: error.message }));
+                    reject(error);
+                }
+            };
+            reader.onerror = () => {
+                this.updateStatus(t('status.fileReadError'));
+                reject(new Error('Ошибка чтения файла'));
+            };
+            reader.readAsText(file);
+        });
+    }
+
+    // MusicXML в архиве .mxl - так его отдаёт Audiveris
+    loadPackedMusicXml(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const xml = await this.unzipMusicXml(new Uint8Array(e.target.result));
+                    this.applyMusicXml(xml);
+                    resolve(true);
+                } catch (error) {
+                    this.updateStatus(t('status.fileLoadError', { message: error.message }));
+                    reject(error);
+                }
+            };
+            reader.onerror = () => {
+                this.updateStatus(t('status.fileReadError'));
+                reject(new Error('Ошибка чтения файла'));
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    // .mxl это обычный zip. Разбираем сами: браузер умеет распаковывать
+    // поток сжатия, поэтому сторонняя библиотека не нужна
+    async unzipMusicXml(bytes) {
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const decoder = new TextDecoder('utf-8');
+        let index = 0;
+        let best = null;
+
+        while (index + 30 <= bytes.length) {
+            if (view.getUint32(index, true) !== 0x04034b50) { index++; continue; }
+
+            const method = view.getUint16(index + 8, true);
+            const compressedSize = view.getUint32(index + 18, true);
+            const nameLength = view.getUint16(index + 26, true);
+            const extraLength = view.getUint16(index + 28, true);
+            const entryName = decoder.decode(bytes.subarray(index + 30, index + 30 + nameLength));
+            const dataStart = index + 30 + nameLength + extraLength;
+
+            // Размер бывает записан только в оглавлении архива - тогда идём дальше
+            if (!compressedSize || !/\.xml$/i.test(entryName) || /container\.xml$/i.test(entryName)) {
+                if (!compressedSize) { index++; continue; }
+                index = dataStart + compressedSize;
+                continue;
+            }
+
+            const chunk = bytes.subarray(dataStart, dataStart + compressedSize);
+            let text;
+            if (method === 0) {
+                text = decoder.decode(chunk);
+            } else {
+                if (typeof DecompressionStream === 'undefined') {
+                    throw new Error('браузер не умеет распаковывать архивы');
+                }
+                const stream = new Blob([chunk]).stream()
+                    .pipeThrough(new DecompressionStream('deflate-raw'));
+                text = await new Response(stream).text();
+            }
+
+            // Партия лежит в самом крупном xml архива
+            if (!best || text.length > best.length) best = text;
+            index = dataStart + compressedSize;
+        }
+
+        if (!best) throw new Error('в архиве нет MusicXML');
+        return best;
+    }
+
+    // Применяем разобранный MusicXML к модели приложения
+    applyMusicXml(text) {
+        if (typeof MusicXml === 'undefined') return false;
+
+        const parsed = MusicXml.parse(text);
+        if (!parsed.elements.length) {
+            this.updateStatus(t('status.musicXmlEmpty'));
+            return false;
+        }
+
+        this.pushHistory();
+        // loading глушит запись истории: иначе каждая нота станет шагом отката
+        this.loading = true;
+        this.clearAllNotes();
+
+        let skipped = 0;
+        parsed.elements.forEach(item => {
+            let id;
+            if (item.isRest) {
+                id = this.addRest(null, { silent: true });
+            } else {
+                const info = this.getNoteInfoByName(item.noteName);
+                if (!info) { skipped++; return; }
+                id = this.addNote(info.positionId, item.noteName, null, { silent: true });
+            }
+
+            const element = this.notes.find(n => n.id === id);
+            if (!element) return;
+
+            if (item.duration) this.setElementDuration(element, item.duration);
+            if (item.dotted) this.setElementDotted(element, item.dotted);
+            if (item.currentVariant) element.currentVariant = item.currentVariant;
+
+            // Поля лиг и триолей: запись их уже умеет, интерфейс появится позже
+            if (item.tuplet) element.tuplet = item.tuplet;
+            if (item.tiedToNext) element.tiedToNext = true;
+            if (item.slurStart) element.slurStart = true;
+            if (item.slurEnd) element.slurEnd = true;
+        });
+
+        this.loading = false;
+
+        // Сдвиги и режим подписей из расширений: без них файл откроется не так
+        const settings = parsed.settings || {};
+        if (typeof settings.appSoundShift === 'number') this.appSoundShift = settings.appSoundShift;
+        if (typeof settings.saxShift === 'number') this.saxShift = settings.saxShift;
+        if (typeof settings.soundingNames === 'boolean') {
+            this.soundingNames = settings.soundingNames;
+            const toggle = document.getElementById('sounding-names-toggle');
+            if (toggle) toggle.checked = this.soundingNames;
+        }
+        if (this.afterShiftChange) this.afterShiftChange();
+
+        if (parsed.tempo) this.setTempo(parsed.tempo);
+        if (parsed.timeSignature) this.setTimeSignature(parsed.timeSignature);
+
+        this.deselectNote();
+        this.relayout();
+        this.updateStatus(skipped
+            ? t('status.musicXmlLoadedPartial', { n: this.notes.length, skipped: skipped })
+            : t('status.musicXmlLoaded', { n: this.notes.length }));
+        this.scheduleAutosave();
+        return true;
     }
 }
 
