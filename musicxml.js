@@ -414,9 +414,131 @@
         return out.join('\n');
     }
 
+    // === Чтение ===
+
+    function unescapeXml(value) {
+        return String(value || '')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'")
+            .replace(/&amp;/g, '&');
+    }
+
+    function textOf(xml, tag) {
+        var match = new RegExp('<' + tag + '[^>]*>([\\s\\S]*?)</' + tag + '>').exec(xml);
+        return match ? unescapeXml(match[1]).trim() : '';
+    }
+
+    var DENOMINATOR_BY_TYPE = {};
+    Object.keys(TYPE_BY_DENOMINATOR).forEach(function (key) {
+        DENOMINATOR_BY_TYPE[TYPE_BY_DENOMINATOR[key]] = Number(key);
+    });
+
+    // Длительность: у нас она хранится знаком и точками, а не тиками
+    function parseTiming(noteXml) {
+        var type = textOf(noteXml, 'type');
+        var denominator = DENOMINATOR_BY_TYPE[type] || 4;
+        var dots = (noteXml.match(/<dot\s*\/>/g) || []).length;
+
+        var modification = /<time-modification>[\s\S]*?<actual-notes>(\d+)<\/actual-notes>[\s\S]*?<normal-notes>(\d+)<\/normal-notes>[\s\S]*?<\/time-modification>/.exec(noteXml);
+        var tuplet = modification
+            ? { actual: Number(modification[1]), normal: Number(modification[2]) }
+            : null;
+
+        return { duration: denominator, dotted: dots, tuplet: tuplet };
+    }
+
+    function parseNote(noteXml) {
+        var isRest = /<rest\s*\/>/.test(noteXml);
+        // <chord/> означает, что это ещё один тон того же аккорда.
+        // Приложение одноголосное, поэтому дополнительный тон пропускаем:
+        // остаётся первый, то есть верхний - как и при импорте MIDI
+        var isChordTone = /<chord\s*\/>/.test(noteXml);
+        var step = textOf(noteXml, 'step');
+        var alter = textOf(noteXml, 'alter');
+        var octave = textOf(noteXml, 'octave');
+
+        var noteName = null;
+        if (!isRest && step) {
+            var accidental = '';
+            if (Number(alter) > 0) accidental = '#';
+            if (Number(alter) < 0) accidental = 'b';
+            noteName = step + accidental + octave;
+        }
+
+        var timing = parseTiming(noteXml);
+        var variant = /sax-fingering-variant=(\d+)/.exec(noteXml);
+
+        var element = {
+            isRest: isRest,
+            chordTone: isChordTone,
+            noteName: noteName,
+            displayName: noteName,
+            duration: timing.duration,
+            dotted: timing.dotted,
+            currentVariant: variant ? Number(variant[1]) : 1
+        };
+
+        if (timing.tuplet) element.tuplet = timing.tuplet;
+        if (/<tie type="start"/.test(noteXml)) element.tiedToNext = true;
+        if (/<slur type="start"/.test(noteXml)) element.slurStart = true;
+        if (/<slur type="stop"/.test(noteXml)) element.slurEnd = true;
+
+        return element;
+    }
+
+    // Разбор MusicXML. Терпимый: незнакомые элементы пропускаем, а не падаем -
+    // файлы приходят из MuseScore, Audiveris и откуда угодно
+    function parse(xml) {
+        var text = String(xml || '');
+        var settings = {};
+        var meta = {};
+
+        var fieldRe = /<miscellaneous-field name="([^"]+)"[^>]*>([\s\S]*?)<\/miscellaneous-field>/g;
+        var field;
+        while ((field = fieldRe.exec(text))) {
+            var name = field[1];
+            var value = unescapeXml(field[2]).trim();
+
+            if (name === 'sax-fingering-app-shift') settings.appSoundShift = Number(value);
+            else if (name === 'sax-fingering-instrument-shift') settings.saxShift = Number(value);
+            else if (name === 'sax-fingering-sounding-names') settings.soundingNames = value === 'true';
+            else if (name === 'sax-fingering-set') meta.fingeringSet = value;
+            else if (name === 'sax-fingering-model') meta.model = Number(value);
+            else if (name === 'sax-fingering-version') meta.version = value;
+        }
+
+        var beats = textOf(text, 'beats');
+        var beatType = textOf(text, 'beat-type');
+        var tempoMatch = /<sound[^>]*tempo="([\d.]+)"/.exec(text);
+
+        var elements = [];
+        // У нот бывают атрибуты координат: <note default-x="..." default-y="...">
+        var noteRe = /<note(\s[^>]*)?>([\s\S]*?)<\/note>/g;
+        var note;
+        while ((note = noteRe.exec(text))) {
+            var element = parseNote(note[2]);
+            // Дополнительные тоны аккорда пропускаем: приложение одноголосное
+            if (element.chordTone) continue;
+            // Ноту без высоты, которую мы не понимаем, лучше пропустить
+            if (!element.isRest && !element.noteName) continue;
+            elements.push(element);
+        }
+
+        return {
+            elements: elements,
+            tempo: tempoMatch ? Number(tempoMatch[1]) : 0,
+            timeSignature: (beats && beatType) ? (beats + '/' + beatType) : '',
+            settings: settings,
+            meta: meta
+        };
+    }
+
     return {
         DIVISIONS: DIVISIONS,
         build: build,
+        parse: parse,
         beatsOf: beatsOf,
         pitchOf: pitchOf
     };
