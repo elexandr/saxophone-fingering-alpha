@@ -54,6 +54,7 @@ class FullRangeStaffManager {
         // Множественное выделение: набор выбранных нот и якорь диапазона.
         // selectedNoteId остаётся активной нотой - на неё смотрит прочая логика
         this.clipboard = null; // буфер обмена для копирования нот
+        this.notationTimer = null; // отложенная отрисовка лиг и триолей
         this.suspendHistory = false; // на время массовых вставок история не пишется
         this.selectedIds = [];
         this.selectionAnchorId = null;
@@ -1186,6 +1187,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     }
     
     relayout() {
+        // Лиги и триоли рисуем после перестройки: стан успевает разложиться
+        clearTimeout(this.notationTimer);
+        this.notationTimer = setTimeout(() => this.drawNotationCurves(), 0);
         this.closeDurationMenus();
         this.updateNotePositions();
         this.updateNoteCount();
@@ -1945,6 +1949,130 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.updateStatus(t('status.pasted', { n: this.clipboard.length }));
         this.scheduleAutosave();
         return true;
+    }
+
+    // === Рисование лиг и триолей ===
+
+    // Геометрия ноты: где она стоит внутри своей системы
+    noteBox(note) {
+        const el = note.element;
+        const width = el.offsetWidth || 40;
+        const left = parseFloat(el.style.left);
+        return {
+            left: isNaN(left) ? (el.offsetLeft || 0) : left,
+            width: width,
+            center: (isNaN(left) ? (el.offsetLeft || 0) : left) + width / 2,
+            y: note.y
+        };
+    }
+
+    drawNotationCurves() {
+        const systems = Array.from(document.querySelectorAll('.system'));
+        if (!systems.length) return;
+
+        systems.forEach(system => {
+            const old = system.querySelector('.notation-layer');
+            if (old) old.remove();
+
+            const notes = this.notes.filter(n => n.element && !n.isRest && system.contains(n.element));
+            if (!notes.length) return;
+
+            const shapes = [];
+
+            // Связующие лиги: между соседними нотами одной высоты
+            notes.forEach((note, index) => {
+                if (!note.tiedToNext) return;
+                const next = notes[index + 1];
+                if (!next || next.noteName !== note.noteName) return;
+                shapes.push(this.tieArc(note, next));
+            });
+
+            // Фразировочные лиги: от начала до конца
+            let openSlur = null;
+            notes.forEach(note => {
+                if (note.slurStart) openSlur = note;
+                if (note.slurEnd && openSlur) {
+                    if (openSlur !== note) shapes.push(this.slurArc(openSlur, note, notes));
+                    openSlur = null;
+                }
+            });
+
+            // Триоли и квинтоли: скобка с числом над группой
+            let group = null;
+            notes.forEach((note, index) => {
+                const ratio = note.tuplet;
+                if (ratio && (!group || group.actual !== ratio.actual)) {
+                    group = { start: note, actual: ratio.actual };
+                }
+                const nextRatio = notes[index + 1] ? notes[index + 1].tuplet : null;
+                if (group && (!nextRatio || nextRatio.actual !== group.actual)) {
+                    shapes.push(this.tupletBracket(group.start, note, group.actual));
+                    group = null;
+                }
+            });
+
+            if (!shapes.length) return;
+
+            const layer = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            const width = system.scrollWidth || system.offsetWidth || 1000;
+            layer.setAttribute('class', 'notation-layer');
+            layer.setAttribute('width', width);
+            layer.setAttribute('height', 320);
+            layer.setAttribute('viewBox', '0 0 ' + width + ' 320');
+            layer.innerHTML = shapes.join('');
+            system.appendChild(layer);
+        });
+    }
+
+    tieArc(note, next) {
+        const a = this.noteBox(note);
+        const b = this.noteBox(next);
+        // Лига идёт с противоположной стороны от штиля, как принято в нотах
+        const below = !!note.stemUp;
+        const offset = below ? 13 : -13;
+        const lift = below ? 8 : -8;
+        const y1 = a.y + offset;
+        const y2 = b.y + offset;
+        const x1 = a.left + a.width * 0.6;
+        const x2 = b.left + b.width * 0.4;
+        return '<path class="tie" d="M ' + x1.toFixed(1) + ' ' + y1.toFixed(1) +
+            ' C ' + (x1 + (x2 - x1) / 3).toFixed(1) + ' ' + (y1 + lift).toFixed(1) + ', ' +
+            (x1 + 2 * (x2 - x1) / 3).toFixed(1) + ' ' + (y2 + lift).toFixed(1) + ', ' +
+            x2.toFixed(1) + ' ' + y2.toFixed(1) + '"/>';
+    }
+
+    slurArc(from, to, notes) {
+        const a = this.noteBox(from);
+        const b = this.noteBox(to);
+        const between = notes.filter(n => {
+            const box = this.noteBox(n);
+            return box.center > a.center && box.center < b.center;
+        });
+        const tops = [a.y, b.y].concat(between.map(n => n.y));
+        // Фразировочная лига тоже идёт со стороны, свободной от штилей
+        const above = !from.stemUp;
+        const base = above ? Math.min.apply(null, tops) - 20 : Math.max.apply(null, tops) + 20;
+        const lift = above ? -24 : 24;
+        const y1 = base + (above ? 4 : -4);
+        return '<path class="slur" d="M ' + a.center.toFixed(1) + ' ' + y1.toFixed(1) +
+            ' C ' + (a.center + (b.center - a.center) / 3).toFixed(1) + ' ' + (base + lift).toFixed(1) + ', ' +
+            (a.center + 2 * (b.center - a.center) / 3).toFixed(1) + ' ' + (base + lift).toFixed(1) + ', ' +
+            b.center.toFixed(1) + ' ' + y1.toFixed(1) + '"/>';
+    }
+
+    tupletBracket(from, to, actual) {
+        const a = this.noteBox(from);
+        const b = this.noteBox(to);
+        const above = !from.stemUp;
+        const y = above ? Math.min(a.y, b.y) - 30 : Math.max(a.y, b.y) + 30;
+        const x1 = a.left + a.width * 0.35;
+        const x2 = b.left + b.width * 0.65;
+        const tick = above ? 6 : -6;
+        return '<path class="tuplet-bracket" d="M ' + x1.toFixed(1) + ' ' + (y + tick).toFixed(1) +
+            ' L ' + x1.toFixed(1) + ' ' + y.toFixed(1) + ' L ' + x2.toFixed(1) + ' ' + y.toFixed(1) +
+            ' L ' + x2.toFixed(1) + ' ' + (y + tick).toFixed(1) + '"/>' +
+            '<text class="tuplet-number" x="' + ((x1 + x2) / 2).toFixed(1) + '" y="' +
+            (y + (above ? -5 : 14)).toFixed(1) + '">' + actual + '</text>';
     }
 
     clearAllNotes() {
