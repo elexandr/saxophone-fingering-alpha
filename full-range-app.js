@@ -4042,27 +4042,44 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     async unzipMusicXml(bytes) {
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const decoder = new TextDecoder('utf-8');
-        let index = 0;
+
+        // Оглавление архива ищем с конца. Настоящие размеры записаны именно
+        // в нём: в локальных заголовках многие архивы держат нули и признак
+        // того, что размеры лежат после данных (флаг 0x0008)
+        let eocd = -1;
+        for (let i = bytes.length - 22; i >= 0 && i >= bytes.length - 66000; i--) {
+            if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+        }
+        if (eocd < 0) throw new Error('это не архив .mxl');
+
+        const entryCount = view.getUint16(eocd + 10, true);
+        let pointer = view.getUint32(eocd + 16, true);
         let best = null;
 
-        while (index + 30 <= bytes.length) {
-            if (view.getUint32(index, true) !== 0x04034b50) { index++; continue; }
+        for (let n = 0; n < entryCount; n++) {
+            if (pointer + 46 > bytes.length) break;
+            if (view.getUint32(pointer, true) !== 0x02014b50) break;
 
-            const method = view.getUint16(index + 8, true);
-            const compressedSize = view.getUint32(index + 18, true);
-            const nameLength = view.getUint16(index + 26, true);
-            const extraLength = view.getUint16(index + 28, true);
-            const entryName = decoder.decode(bytes.subarray(index + 30, index + 30 + nameLength));
-            const dataStart = index + 30 + nameLength + extraLength;
+            const method = view.getUint16(pointer + 10, true);
+            const compressedSize = view.getUint32(pointer + 20, true);
+            const nameLength = view.getUint16(pointer + 28, true);
+            const extraLength = view.getUint16(pointer + 30, true);
+            const commentLength = view.getUint16(pointer + 32, true);
+            const localOffset = view.getUint32(pointer + 42, true);
+            const entryName = decoder.decode(bytes.subarray(pointer + 46, pointer + 46 + nameLength));
 
-            // Размер бывает записан только в оглавлении архива - тогда идём дальше
-            if (!compressedSize || !/\.xml$/i.test(entryName) || /container\.xml$/i.test(entryName)) {
-                if (!compressedSize) { index++; continue; }
-                index = dataStart + compressedSize;
-                continue;
-            }
+            pointer += 46 + nameLength + extraLength + commentLength;
 
+            // Служебный container.xml не нужен: в нём только указатель на партию
+            if (!/\.xml$/i.test(entryName) || /container\.xml$/i.test(entryName)) continue;
+            if (!compressedSize) continue;
+
+            // Данные начинаются сразу после локального заголовка
+            const localNameLength = view.getUint16(localOffset + 26, true);
+            const localExtraLength = view.getUint16(localOffset + 28, true);
+            const dataStart = localOffset + 30 + localNameLength + localExtraLength;
             const chunk = bytes.subarray(dataStart, dataStart + compressedSize);
+
             let text;
             if (method === 0) {
                 text = decoder.decode(chunk);
@@ -4077,13 +4094,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
             // Партия лежит в самом крупном xml архива
             if (!best || text.length > best.length) best = text;
-            index = dataStart + compressedSize;
         }
 
         if (!best) throw new Error('в архиве нет MusicXML');
         return best;
     }
-
     // Применяем разобранный MusicXML к модели приложения
     applyMusicXml(text) {
         if (typeof MusicXml === 'undefined') return false;

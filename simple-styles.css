@@ -215,7 +215,17 @@ body {
     background: #c53030;
 }
 
-.btn-control.btn-success {
+.btn-control/* Кнопка открытия выделена цветом: она первая и самая частая */
+.btn-open {
+    background: linear-gradient(135deg, #3d7ebd 0%, #2b5f95 100%);
+    border-color: #2b5f95;
+    color: #fff;
+}
+
+.btn-open:hover {
+    background: linear-gradient(135deg, #4789c9 0%, #3570aa 100%);
+}
+.btn-success {
     background: #38a169;
 }
 
