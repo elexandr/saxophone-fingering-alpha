@@ -385,6 +385,14 @@
                 tempoXml(options.tempo).forEach(function (line) { out.push(line); });
             }
 
+            // Левая черта вольты идёт до нот: иначе при чтении номер не привяжется
+            var voltaStart = measure.filter(function (element) { return element.voltaStart; })[0];
+            if (voltaStart) {
+                out.push('            <barline location="left">');
+                out.push('                <ending number="' + escapeText(voltaStart.voltaStart) + '" type="start"/>');
+                out.push('            </barline>');
+            }
+
             measure.forEach(function (element) {
                 var index = elementIndex++;
                 var lines = noteXml(element, {
@@ -398,6 +406,17 @@
                 lines.forEach(function (line) { out.push(line); });
             });
 
+            if (measure.some(function (element) { return element.voltaStop; })) {
+                out.push('            <barline location="right">');
+                out.push('                <ending number="' + escapeText(voltaStart ? voltaStart.voltaStart : '') + '" type="stop"/>');
+                out.push('            </barline>');
+            }
+
+            if (measure.some(function (element) { return element.repeatStart; })) {
+                out.push('            <barline location="left">');
+                out.push('                <repeat direction="forward"/>');
+                out.push('            </barline>');
+            }
             if (measure.some(function (element) { return element.repeatEnd; })) {
                 out.push('            <barline location="right">');
                 out.push('                <repeat direction="backward"/>');
@@ -569,11 +588,37 @@
 
         // Идём по документу по порядку: знак 8va действует на ноты после себя,
         // поэтому одними нотами не обойтись, нужны и указания
-        var scan = /<(note|direction)(\s[^>]*)?>([\s\S]*?)<\/\1>/g;
+        var scan = /<(note|direction|barline)(\s[^>]*)?>([\s\S]*?)<\/\1>/g;
+        var pendingVolta = null;   // номер концовки, объявленной перед нотами
+        var pendingRepeat = false; // реприза, объявленная перед нотами
         var item;
         while ((item = scan.exec(body))) {
             var kind = item[1];
             var noteBody = item[3];
+
+            if (kind === 'barline') {
+                // Вольта: концовка с номером. Начало помечаем следующей ноте,
+                // конец - предыдущей, как это делают нотные редакторы
+                var endingMatch = /<ending([^>]*)>/.exec(item[3]);
+                if (endingMatch) {
+                    var numberMatch = /number="([^"]*)"/.exec(endingMatch[1]);
+                    var typeMatch2 = /type="([a-z]+)"/.exec(endingMatch[1]);
+                    var endingNumber = numberMatch ? numberMatch[1] : '';
+                    var endingType = typeMatch2 ? typeMatch2[1] : '';
+                    if (endingType === 'start') pendingVolta = endingNumber;
+                    else if (endingType === 'stop' || endingType === 'discontinue') {
+                        if (elements.length) elements[elements.length - 1].voltaStop = true;
+                    }
+                }
+                // Репризы: у приложения свои метки на элементах
+                if (/<repeat[^>]*direction="backward"/.test(item[3])) {
+                    if (elements.length) elements[elements.length - 1].repeatEnd = true;
+                }
+                if (/<repeat[^>]*direction="forward"/.test(item[3])) {
+                    pendingRepeat = true;
+                }
+                continue;
+            }
 
             if (kind === 'direction') {
                 var shiftTag = /<octave-shift[^>]*>/.exec(noteBody);
@@ -609,6 +654,15 @@
                     element.noteName = pitch.step + accidental + (pitch.octave + octaveShift / 12);
                     element.displayName = element.noteName;
                 }
+            }
+
+            if (pendingVolta) {
+                element.voltaStart = pendingVolta;
+                pendingVolta = null;
+            }
+            if (pendingRepeat) {
+                element.repeatStart = true;
+                pendingRepeat = false;
             }
 
             var voiceMatch = /<voice>([^<]+)<\/voice>/.exec(noteBody);

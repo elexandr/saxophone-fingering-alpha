@@ -2266,6 +2266,20 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 }
             }
 
+            // Вольты: скобка с номером над концовкой
+            let voltaFrom = null;
+            notes.forEach((note, index) => {
+                if (note.voltaStart) voltaFrom = { note: note, number: note.voltaStart };
+                if (voltaFrom && note.voltaStop) {
+                    shapes.push(this.voltaBracket(voltaFrom.note, note, voltaFrom.number, systemRect));
+                    voltaFrom = null;
+                } else if (voltaFrom && index === notes.length - 1) {
+                    // Концовка без явного конца тянется до конца строки
+                    shapes.push(this.voltaBracket(voltaFrom.note, note, voltaFrom.number, systemRect));
+                    voltaFrom = null;
+                }
+            });
+
             // Лига не закрылась в этой строке: рисуем половину до правого края
             if (openSlur && notes.length) {
                 shapes.push(this.halfSlur(openSlur, notes[notes.length - 1], systemRect, 'right'));
@@ -2346,6 +2360,20 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 (sharp ? '\u266F' : '\u266D') + '</text>';
         }
         return shapes;
+    }
+
+    // Вольта: скобка с номером концовки над нотами
+    voltaBracket(from, to, number, systemRect) {
+        const a = this.noteBox(from, systemRect);
+        const b = this.noteBox(to, systemRect);
+        const y = Math.min(a.headY, b.headY) - 46;
+        const x1 = a.left + a.width * 0.2;
+        const x2 = b.left + b.width * 0.8;
+        return '<path class="volta-bracket" d="M ' + x1.toFixed(1) + ' ' + (y + 8).toFixed(1) +
+            ' L ' + x1.toFixed(1) + ' ' + y.toFixed(1) + ' L ' + x2.toFixed(1) + ' ' + y.toFixed(1) +
+            ' L ' + x2.toFixed(1) + ' ' + (y + 8).toFixed(1) + '"/>' +
+            '<text class="volta-number" x="' + (x1 + 6).toFixed(1) + '" y="' + (y - 5).toFixed(1) + '">' +
+            number + '</text>';
     }
 
     // Половина связующей лиги до края строки

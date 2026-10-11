@@ -647,6 +647,18 @@ body {
     fill: #1a1a1a;
 }
 
+.notation-layer .volta-bracket {
+    fill: none;
+    stroke: #1a1a1a;
+    stroke-width: 1.8;
+}
+
+.notation-layer .volta-number {
+    font-size: 14px;
+    font-weight: 600;
+    fill: #1a1a1a;
+}
+
 .notation-layer .tuplet-number {
     font-size: 15px;
     font-weight: 600;
