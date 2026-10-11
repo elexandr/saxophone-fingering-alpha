@@ -56,6 +56,7 @@ class FullRangeStaffManager {
         this.clipboard = null; // буфер обмена для копирования нот
         this.notationTimer = null; // отложенная отрисовка лиг и триолей
         this.suspendHistory = false; // на время массовых вставок история не пишется
+        this.keyFifths = 0; // тональность: сколько знаков при ключе
         this.selectedIds = [];
         this.selectionAnchorId = null;
         // Планшет: долгое нажатие ставит якорь, второе касание задаёт конец
@@ -1549,6 +1550,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             const note = this.notes.find(n => n.id === id);
             if (note && note.element) note.element.classList.remove('selected');
         });
+        this.keyFifths = 0; // тональность: сколько знаков при ключе
         this.selectedIds = [];
     }
 
@@ -4324,7 +4326,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             settings: {
                 appSoundShift: this.appSoundShift,
                 saxShift: this.saxShift,
-                soundingNames: this.soundingNames
+                soundingNames: this.soundingNames,
+                keyFifths: this.keyFifths
             },
             meta: {
                 model: 1,
@@ -4669,11 +4672,28 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         if (parsed.tempo) this.setTempo(parsed.tempo);
         if (parsed.timeSignature) this.setTimeSignature(parsed.timeSignature);
 
+        // Тональность из файла: нужна, чтобы записать её обратно правильно
+        if (typeof parsed.fifths === 'number') this.keyFifths = parsed.fifths;
+
+        // Предупреждения о том, что ноты могли уехать или потеряться
+        const warnings = [];
+        if (parsed.clefSign && parsed.clefSign !== 'G') {
+            warnings.push(t('status.musicXmlClef'));
+        }
+        if (parsed.skippedGrace) {
+            warnings.push(t('status.musicXmlGrace', { n: parsed.skippedGrace }));
+        }
+        if (parsed.skippedVoices) {
+            warnings.push(t('status.musicXmlVoices', { n: parsed.skippedVoices }));
+        }
+
         this.deselectNote();
         this.relayout();
-        this.updateStatus(skipped
+        let message = skipped
             ? t('status.musicXmlLoadedPartial', { n: this.notes.length, skipped: skipped })
-            : t('status.musicXmlLoaded', { n: this.notes.length }));
+            : t('status.musicXmlLoaded', { n: this.notes.length });
+        if (warnings.length) message += ' · ' + warnings.join(' · ');
+        this.updateStatus(message);
         this.scheduleAutosave();
         return true;
     }

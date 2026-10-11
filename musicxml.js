@@ -262,7 +262,7 @@
         return notes;
     }
 
-    function attributesXml(settings, timeSignature, transpose) {
+    function attributesXml(settings, timeSignature, transpose, fifths) {
         var parts = String(timeSignature || '4/4').split('/');
         var beats = Number(parts[0]) || 4;
         var beatType = Number(parts[1]) || 4;
@@ -270,7 +270,7 @@
         var out = [
             '            <attributes>',
             '                <divisions>' + DIVISIONS + '</divisions>',
-            '                <key><fifths>0</fifths></key>',
+            '                <key><fifths>' + (Number(fifths) || 0) + '</fifths></key>',
             '                <time>',
             '                    <beats>' + beats + '</beats>',
             '                    <beat-type>' + beatType + '</beat-type>',
@@ -380,7 +380,7 @@
             out.push('        <measure number="' + (measureIndex + 1) + '">');
 
             if (measureIndex === 0) {
-                attributesXml(settings, options.timeSignature, settings.saxShift)
+                attributesXml(settings, options.timeSignature, settings.saxShift, settings.keyFifths)
                     .forEach(function (line) { out.push(line); });
                 tempoXml(options.tempo).forEach(function (line) { out.push(line); });
             }
@@ -513,23 +513,94 @@
         var beatType = textOf(text, 'beat-type');
         var tempoMatch = /<sound[^>]*tempo="([\d.]+)"/.exec(text);
 
+        var fifthsMatch = /<fifths>(-?\d+)<\/fifths>/.exec(text);
+
+        // Ключ: у саксофона всегда скрипичный. Если в файле другой, читаем как
+        // есть, но приложение предупредит - ноты могут уехать по высоте
+        var clefMatch = /<clef[^>]*>[\s\S]*?<sign>([A-G])<\/sign>/.exec(text);
+        var clefSign = clefMatch ? clefMatch[1] : '';
+
         var elements = [];
-        // У нот бывают атрибуты координат: <note default-x="..." default-y="...">
-        var noteRe = /<note(\s[^>]*)?>([\s\S]*?)<\/note>/g;
-        var note;
-        while ((note = noteRe.exec(text))) {
-            var element = parseNote(note[2]);
+        var skippedChords = 0;
+        var skippedGrace = 0;
+        var voices = {};
+        var octaveShift = 0;
+
+        // Идём по документу по порядку: знак 8va действует на ноты после себя,
+        // поэтому одними нотами не обойтись, нужны и указания
+        var scan = /<(note|direction)(\s[^>]*)?>([\s\S]*?)<\/\1>/g;
+        var item;
+        while ((item = scan.exec(text))) {
+            var kind = item[1];
+            var body = item[3];
+
+            if (kind === 'direction') {
+                var shiftTag = /<octave-shift[^>]*>/.exec(body);
+                if (shiftTag) {
+                    var typeMatch = /type="([a-z]+)"/.exec(shiftTag[0]);
+                    var sizeMatch = /size="(\d+)"/.exec(shiftTag[0]);
+                    var steps = 12;
+                    if (sizeMatch && Number(sizeMatch[1]) === 15) steps = 24;
+                    if (sizeMatch && Number(sizeMatch[1]) === 22) steps = 36;
+                    var shiftType = typeMatch ? typeMatch[1] : '';
+                    if (shiftType === 'up') octaveShift = steps;
+                    else if (shiftType === 'down') octaveShift = -steps;
+                    else if (shiftType === 'stop') octaveShift = 0;
+                    // continue значит знак тянется на следующую строку: оставляем
+                }
+                continue;
+            }
+
+            var element = parseNote(body);
+
             // Дополнительные тоны аккорда пропускаем: приложение одноголосное
-            if (element.chordTone) continue;
+            if (element.chordTone) { skippedChords++; continue; }
+            // Форшлаг длительности не имеет: полной нотой он сдвинул бы такт
+            if (/<grace\s*\/>/.test(body)) { skippedGrace++; continue; }
             // Ноту без высоты, которую мы не понимаем, лучше пропустить
             if (!element.isRest && !element.noteName) continue;
+
+            // 8va и 8vb: ноты записаны условно, звучат на октаву выше или ниже
+            if (octaveShift && element.noteName) {
+                var pitch = pitchOf(element.noteName);
+                if (pitch) {
+                    var accidental = pitch.alter > 0 ? '#' : (pitch.alter < 0 ? 'b' : '');
+                    element.noteName = pitch.step + accidental + (pitch.octave + octaveShift / 12);
+                    element.displayName = element.noteName;
+                }
+            }
+
+            var voiceMatch = /<voice>([^<]+)<\/voice>/.exec(body);
+            var voiceNumber = voiceMatch ? voiceMatch[1].trim() : '1';
+            voices[voiceNumber] = (voices[voiceNumber] || 0) + 1;
+            element.voice = voiceNumber;
             elements.push(element);
         }
+
+        // Несколько голосов: берём тот, где больше нот, как верхнюю линию.
+        // Иначе многоголосие склеилось бы в кашу
+        var voiceKeys = Object.keys(voices);
+        var mainVoice = '';
+        voiceKeys.forEach(function (key) {
+            if (!mainVoice || voices[key] > voices[mainVoice]) mainVoice = key;
+        });
+        var droppedVoices = 0;
+        if (voiceKeys.length > 1) {
+            var beforeFilter = elements.length;
+            elements = elements.filter(function (element) { return element.voice === mainVoice; });
+            droppedVoices = beforeFilter - elements.length;
+        }
+        elements.forEach(function (element) { delete element.voice; });
 
         return {
             elements: elements,
             tempo: tempoMatch ? Number(tempoMatch[1]) : 0,
             timeSignature: (beats && beatType) ? (beats + '/' + beatType) : '',
+            fifths: fifthsMatch ? Number(fifthsMatch[1]) : null,
+            clefSign: clefSign,
+            skippedChords: skippedChords,
+            skippedGrace: skippedGrace,
+            skippedVoices: droppedVoices,
             settings: settings,
             meta: meta
         };
