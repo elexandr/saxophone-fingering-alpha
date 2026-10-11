@@ -4686,6 +4686,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         if (parsed.skippedVoices) {
             warnings.push(t('status.musicXmlVoices', { n: parsed.skippedVoices }));
         }
+        // В файле несколько инструментов: говорим, какая партия взята
+        if (parsed.partCount > 1) {
+            warnings.push(t('status.musicXmlParts', { n: parsed.partCount, name: parsed.chosenPart || '1' }));
+        }
 
         this.deselectNote();
         this.relayout();

@@ -509,16 +509,57 @@
             else if (name === 'sax-fingering-version') meta.version = value;
         }
 
-        var beats = textOf(text, 'beats');
-        var beatType = textOf(text, 'beat-type');
-        var tempoMatch = /<sound[^>]*tempo="([\d.]+)"/.exec(text);
+        // Партии: в одном файле может быть несколько инструментов. Саксофон
+        // пишется одной линией, а сопровождение - с <backup> и вторым голосом
+        var partRe = /<part\s+id="([^"]*)"[^>]*>([\s\S]*?)<\/part>/g;
+        var parts = [];
+        var partMatch;
+        while ((partMatch = partRe.exec(text))) parts.push({ id: partMatch[1], body: partMatch[2] });
+        if (!parts.length) parts.push({ id: '', body: text });
 
-        var fifthsMatch = /<fifths>(-?\d+)<\/fifths>/.exec(text);
+        var partNames = {};
+        var nameRe = /<score-part\s+id="([^"]*)"[\s\S]*?<part-name[^>]*>([\s\S]*?)<\/part-name>/g;
+        var nameMatch;
+        while ((nameMatch = nameRe.exec(text))) partNames[nameMatch[1]] = unescapeXml(nameMatch[2]).trim();
+
+        var partPrograms = {};
+        var progRe = /<score-part\s+id="([^"]*)"[\s\S]*?<midi-program>(\d+)<\/midi-program>/g;
+        var progMatch;
+        while ((progMatch = progRe.exec(text))) partPrograms[progMatch[1]] = Number(progMatch[2]);
+
+        function partScore(part) {
+            var name = String(partNames[part.id] || '').toLowerCase();
+            var program = partPrograms[part.id];
+            var score = 0;
+
+            if (/sax|сакс/.test(name)) score += 30;
+            if (/alto|tenor|soprano|baritone|альт|тенор|сопрано|баритон/.test(name)) score += 10;
+            // 65..68 в General MIDI - это сопрановый, альтовый, теноровый и баритоновый саксофоны
+            if (program >= 65 && program <= 68) score += 30;
+
+            // Сопровождение почти всегда многоголосое
+            var backups = (part.body.match(/<backup>/g) || []).length;
+            score -= Math.min(30, backups * 4);
+            return score;
+        }
+
+        var chosenPart = parts[0];
+        parts.forEach(function (part) {
+            if (partScore(part) > partScore(chosenPart)) chosenPart = part;
+        });
+        var body = chosenPart.body;
+        var beats = textOf(body, 'beats');
+        var beatType = textOf(body, 'beat-type');
+        // Темп и тональность бывают только в одной из партий, поэтому ищем и в файле
+        var tempoMatch = /<sound[^>]*tempo="([\d.]+)"/.exec(body) || /<sound[^>]*tempo="([\d.]+)"/.exec(text);
+
+        var fifthsMatch = /<fifths>(-?\d+)<\/fifths>/.exec(body) || /<fifths>(-?\d+)<\/fifths>/.exec(text);
 
         // Ключ: у саксофона всегда скрипичный. Если в файле другой, читаем как
         // есть, но приложение предупредит - ноты могут уехать по высоте
-        var clefMatch = /<clef[^>]*>[\s\S]*?<sign>([A-G])<\/sign>/.exec(text);
+        var clefMatch = /<clef[^>]*>[\s\S]*?<sign>([A-G])<\/sign>/.exec(body);
         var clefSign = clefMatch ? clefMatch[1] : '';
+
 
         var elements = [];
         var skippedChords = 0;
@@ -530,12 +571,12 @@
         // поэтому одними нотами не обойтись, нужны и указания
         var scan = /<(note|direction)(\s[^>]*)?>([\s\S]*?)<\/\1>/g;
         var item;
-        while ((item = scan.exec(text))) {
+        while ((item = scan.exec(body))) {
             var kind = item[1];
-            var body = item[3];
+            var noteBody = item[3];
 
             if (kind === 'direction') {
-                var shiftTag = /<octave-shift[^>]*>/.exec(body);
+                var shiftTag = /<octave-shift[^>]*>/.exec(noteBody);
                 if (shiftTag) {
                     var typeMatch = /type="([a-z]+)"/.exec(shiftTag[0]);
                     var sizeMatch = /size="(\d+)"/.exec(shiftTag[0]);
@@ -551,12 +592,12 @@
                 continue;
             }
 
-            var element = parseNote(body);
+            var element = parseNote(noteBody);
 
             // Дополнительные тоны аккорда пропускаем: приложение одноголосное
             if (element.chordTone) { skippedChords++; continue; }
             // Форшлаг длительности не имеет: полной нотой он сдвинул бы такт
-            if (/<grace\s*\/>/.test(body)) { skippedGrace++; continue; }
+            if (/<grace\s*\/>/.test(noteBody)) { skippedGrace++; continue; }
             // Ноту без высоты, которую мы не понимаем, лучше пропустить
             if (!element.isRest && !element.noteName) continue;
 
@@ -570,7 +611,7 @@
                 }
             }
 
-            var voiceMatch = /<voice>([^<]+)<\/voice>/.exec(body);
+            var voiceMatch = /<voice>([^<]+)<\/voice>/.exec(noteBody);
             var voiceNumber = voiceMatch ? voiceMatch[1].trim() : '1';
             voices[voiceNumber] = (voices[voiceNumber] || 0) + 1;
             element.voice = voiceNumber;
@@ -597,6 +638,9 @@
             tempo: tempoMatch ? Number(tempoMatch[1]) : 0,
             timeSignature: (beats && beatType) ? (beats + '/' + beatType) : '',
             fifths: fifthsMatch ? Number(fifthsMatch[1]) : null,
+            partCount: parts.length,
+            partNames: parts.map(function (part) { return partNames[part.id] || part.id; }),
+            chosenPart: partNames[chosenPart.id] || chosenPart.id,
             clefSign: clefSign,
             skippedChords: skippedChords,
             skippedGrace: skippedGrace,
