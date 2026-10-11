@@ -507,9 +507,38 @@
         return element;
     }
 
+    // Список партий файла: имя, программа, сколько нот. Нужен, чтобы предложить
+    // выбор, когда в файле больше одного инструмента
+    function listParts(xml) {
+        var text = String(xml || '');
+        var names = {};
+        var nameRe = /<score-part\s+id="([^"]*)"[\s\S]*?<part-name[^>]*>([\s\S]*?)<\/part-name>/g;
+        var nameMatch;
+        while ((nameMatch = nameRe.exec(text))) names[nameMatch[1]] = unescapeXml(nameMatch[2]).trim();
+
+        var programs = {};
+        var progRe = /<score-part\s+id="([^"]*)"[\s\S]*?<midi-program>(\d+)<\/midi-program>/g;
+        var progMatch;
+        while ((progMatch = progRe.exec(text))) programs[progMatch[1]] = Number(progMatch[2]);
+
+        var list = [];
+        var partRe = /<part\s+id="([^"]*)"[^>]*>([\s\S]*?)<\/part>/g;
+        var partMatch;
+        while ((partMatch = partRe.exec(text))) {
+            list.push({
+                id: partMatch[1],
+                name: names[partMatch[1]] || partMatch[1],
+                program: programs[partMatch[1]] || null,
+                noteCount: (partMatch[2].match(/<note(\s[^>]*)?>/g) || []).length,
+                polyphonic: /<backup>/.test(partMatch[2])
+            });
+        }
+        return list;
+    }
+
     // Разбор MusicXML. Терпимый: незнакомые элементы пропускаем, а не падаем -
     // файлы приходят из MuseScore, Audiveris и откуда угодно
-    function parse(xml) {
+    function parse(xml, wantedPartId) {
         var text = String(xml || '');
         var settings = {};
         var meta = {};
@@ -562,10 +591,16 @@
             return score;
         }
 
-        var chosenPart = parts[0];
-        parts.forEach(function (part) {
-            if (partScore(part) > partScore(chosenPart)) chosenPart = part;
-        });
+        var chosenPart = null;
+        if (wantedPartId) {
+            parts.forEach(function (part) { if (part.id === wantedPartId) chosenPart = part; });
+        }
+        if (!chosenPart) {
+            chosenPart = parts[0];
+            parts.forEach(function (part) {
+                if (partScore(part) > partScore(chosenPart)) chosenPart = part;
+            });
+        }
         var body = chosenPart.body;
         var beats = textOf(body, 'beats');
         var beatType = textOf(body, 'beat-type');
@@ -708,6 +743,7 @@
         DIVISIONS: DIVISIONS,
         build: build,
         parse: parse,
+        listParts: listParts,
         beatsOf: beatsOf,
         pitchOf: pitchOf
     };

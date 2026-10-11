@@ -57,6 +57,7 @@ class FullRangeStaffManager {
         this.notationTimer = null; // отложенная отрисовка лиг и триолей
         this.suspendHistory = false; // на время массовых вставок история не пишется
         this.keyFifths = 0; // тональность: сколько знаков при ключе
+        this.accompaniment = []; // ноты сопровождения: играются, но не показываются
         this.selectedIds = [];
         this.selectionAnchorId = null;
         // Планшет: долгое нажатие ставит якорь, второе касание задаёт конец
@@ -4568,8 +4569,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             const reader = new FileReader();
             reader.onload = (e) => {
                 try {
-                    this.applyMusicXml(String(e.target.result));
-                    resolve(true);
+                    // Через выбор партии: если инструментов несколько, спросим
+                    this.openMusicXml(String(e.target.result)).then(resolve);
                 } catch (error) {
                     this.updateStatus(t('status.fileLoadError', { message: error.message }));
                     reject(error);
@@ -4590,8 +4591,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             reader.onload = async (e) => {
                 try {
                     const xml = await this.unzipMusicXml(new Uint8Array(e.target.result));
-                    this.applyMusicXml(xml);
-                    resolve(true);
+                    this.openMusicXml(xml).then(resolve);
                 } catch (error) {
                     this.updateStatus(t('status.fileLoadError', { message: error.message }));
                     reject(error);
@@ -4667,11 +4667,70 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         if (!best) throw new Error('в архиве нет MusicXML');
         return best;
     }
+    // Аккомпанемент: ноты невыбранных партий. Играются как написано, без
+    // сдвига инструмента: сопровождение написано в концертной высоте
+    buildAccompaniment(text, chosenId) {
+        if (typeof MusicXml === 'undefined' || !MusicXml.listParts) return [];
+        const parts = MusicXml.listParts(text);
+        if (parts.length <= 1) return [];
+
+        const notes = [];
+        parts.forEach(part => {
+            if (part.id === chosenId) return;
+            const parsed = MusicXml.parse(text, part.id);
+            let beat = 0;
+            parsed.elements.forEach(element => {
+                const beats = Playback.beatsFor(element.duration, element.dotted, element.tuplet);
+                if (!element.isRest) {
+                    const midi = Midi.nameToMidi(element.noteName || element.displayName);
+                    if (midi !== null) notes.push({ midi: midi, startBeat: beat, beats: beats });
+                }
+                beat += beats;
+            });
+        });
+        return notes;
+    }
+
+    // В файле несколько инструментов: спрашиваем, какую партию грузить
+    choosePart(parts) {
+        return new Promise(resolve => {
+            const modal = document.getElementById('part-modal');
+            const list = document.getElementById('part-list');
+            if (!modal || !list) { resolve(parts[0].id); return; }
+
+            list.innerHTML = '';
+            parts.forEach((part, index) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'part-choice';
+                button.textContent = (index + 1) + '. ' + part.name + ' — нот ' + part.noteCount +
+                    (part.polyphonic ? ' · ' + t('part.polyphonic') : '');
+                button.addEventListener('click', () => {
+                    modal.hidden = true;
+                    resolve(part.id);
+                });
+                list.appendChild(button);
+            });
+            modal.hidden = false;
+        });
+    }
+
+    // Открытие MusicXML: сначала выбор партии, если инструментов несколько
+    openMusicXml(text) {
+        if (typeof MusicXml === 'undefined') return Promise.resolve(false);
+        const parts = MusicXml.listParts ? MusicXml.listParts(text) : [];
+        if (parts.length <= 1) {
+            this.applyMusicXml(text);
+            return Promise.resolve(true);
+        }
+        return this.choosePart(parts).then(id => this.applyMusicXml(text, id));
+    }
+
     // Применяем разобранный MusicXML к модели приложения
-    applyMusicXml(text) {
+    applyMusicXml(text, partId) {
         if (typeof MusicXml === 'undefined') return false;
 
-        const parsed = MusicXml.parse(text);
+        const parsed = MusicXml.parse(text, partId);
         if (!parsed.elements.length) {
             this.updateStatus(t('status.musicXmlEmpty'));
             return false;
@@ -4725,6 +4784,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
         // Тональность из файла: нужна, чтобы записать её обратно правильно
         if (typeof parsed.fifths === 'number') this.keyFifths = parsed.fifths;
+
+        // Аккомпанемент держим в памяти отдельно: на стане его нет,
+        // но его можно включить во время проигрывания
+        this.accompaniment = this.buildAccompaniment(text, partId);
 
         // Предупреждения о том, что ноты могли уехать или потеряться
         const warnings = [];
@@ -5010,6 +5073,9 @@ document.addEventListener('DOMContentLoaded', () => {
             staffManager.melodyPlayer.setTranspose(staffManager.soundSemitones());
 
             const started = staffManager.melodyPlayer.play(sequence, staffManager.tempo, {
+            accompaniment: staffManager.accompaniment || [],
+            muteMain: !((document.getElementById('sound-main') || { checked: true }).checked),
+            muteAccompaniment: !!(document.getElementById('sound-accompaniment') && !document.getElementById('sound-accompaniment').checked),
                 onElement: (index, element) => {
                     staffManager.highlightElement(element);
                     staffManager.followPlayback(element);

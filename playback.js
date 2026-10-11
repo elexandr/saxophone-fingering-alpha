@@ -381,11 +381,30 @@
             return joined;
         });
 
+        // Аккомпанемент: ноты сопровождения играются по абсолютному времени.
+        // Он написан в концертной высоте, поэтому сдвиг инструмента к нему
+        // не применяется
+        var startCursor = cursor;
+        var secondsPerBeat = 60 / (tempo > 0 ? tempo : 80);
+
+        if (options.accompaniment && options.accompaniment.length && !options.muteAccompaniment) {
+            options.accompaniment.forEach(function (note) {
+                var frequency = 440 * Math.pow(2, (note.midi - 69) / 12);
+                self.scheduleNote(
+                    frequency,
+                    startCursor + (note.startBeat || 0) * secondsPerBeat,
+                    (note.beats || 1) * secondsPerBeat * 0.98
+                );
+            });
+        }
+
         plan.forEach(function (item, index) {
             var element = item.element;
             var startAt = cursor;
 
-            if (!item.skip && !element.isRest) {
+            // Основную линию можно выключить: подсветка при этом работает,
+            // потому что она идёт по времени, а не по звуку
+            if (!item.skip && !element.isRest && !options.muteMain) {
                 var frequency = noteToFrequency(element.noteName, self.transpose);
                 if (frequency) {
                     // Под лигой нота звучит всю длительность, без разрыва
