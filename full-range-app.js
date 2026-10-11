@@ -2196,6 +2196,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
         // Лига, начавшаяся в прошлой строке: дорисовываем её начало слева
         let carriedSlur = null;
+        let carriedTie = null;
 
         systems.forEach(system => {
             const old = system.querySelector('.notation-layer');
@@ -2225,6 +2226,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 }
             });
 
+            // Связующая из прошлой строки: половина дуги от левого края
+            if (carriedTie && notes.length) {
+                shapes.push(this.halfTie(carriedTie, notes[0], systemRect, 'left'));
+                carriedTie = null;
+            }
+
             // Лига из прошлой строки: половина дуги от левого края до её конца
             if (carriedSlur && notes[0]) {
                 const endNote = notes.find(n => n.slurEnd) || notes[0];
@@ -2245,6 +2252,18 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                     group = null;
                 }
             });
+
+            // Связующая уходит на следующую строку: половина дуги до правого края
+            const lastOfSystem = notes[notes.length - 1];
+            if (lastOfSystem && lastOfSystem.tiedToNext) {
+                const globalIndex = this.notes.indexOf(lastOfSystem);
+                const globalNext = this.notes[globalIndex + 1];
+                if (globalNext && !globalNext.isRest && globalNext.noteName === lastOfSystem.noteName &&
+                    !system.contains(globalNext.element)) {
+                    shapes.push(this.halfTie(lastOfSystem, lastOfSystem, systemRect, 'right'));
+                    carriedTie = lastOfSystem;
+                }
+            }
 
             // Лига не закрылась в этой строке: рисуем половину до правого края
             if (openSlur && notes.length) {
@@ -2302,6 +2321,22 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             ' C ' + (x1 + (x2 - x1) / 3).toFixed(1) + ' ' + (base + lift).toFixed(1) + ', ' +
             (x1 + 2 * (x2 - x1) / 3).toFixed(1) + ' ' + (base + lift).toFixed(1) + ', ' +
             x2.toFixed(1) + ' ' + base.toFixed(1) + '"/>';
+    }
+
+    // Половина связующей лиги до края строки
+    halfTie(note, other, systemRect, side) {
+        const a = this.noteBox(note, systemRect);
+        const b = this.noteBox(other, systemRect);
+        const below = !!note.stemUp;
+        const offset = below ? 11 : -11;
+        const lift = below ? 7 : -7;
+        const y = a.headY + offset;
+        const x1 = side === 'right' ? (a.left + a.width * 0.62) : 8;
+        const x2 = side === 'right' ? (systemRect.width - 8) : (b.left + b.width * 0.38);
+        return '<path class="tie" d="M ' + x1.toFixed(1) + ' ' + y.toFixed(1) +
+            ' C ' + (x1 + (x2 - x1) / 3).toFixed(1) + ' ' + (y + lift).toFixed(1) + ', ' +
+            (x1 + 2 * (x2 - x1) / 3).toFixed(1) + ' ' + (y + lift).toFixed(1) + ', ' +
+            x2.toFixed(1) + ' ' + y.toFixed(1) + '"/>';
     }
 
     // Половина фразировочной лиги до края строки: так лига переходит
