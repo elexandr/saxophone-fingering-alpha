@@ -665,9 +665,17 @@
             var limit = Math.min(room, untilBar);
             if (limit < 1) return null;
 
+            // Точное совпадение берём целиком. Но НА ДОЛЕ триольное не берём:
+            // там эталон ставит обычную длительность, а остаток добирает
+            // триолью — 0,667 выходит как восьмая 0,5 и триольная 16-я 0,167,
+            // а не как одна триольная четверть. Между долями берём любое:
+            // там длительность обязана дойти ровно до границы
             var i;
+            var onBeat = (position % STEPS === 0);
             for (i = 0; i < NOTATION.length; i++) {
-                if (!NOTATION[i].tuplet && NOTATION[i].steps === limit) return NOTATION[i];
+                if (NOTATION[i].steps !== limit) continue;
+                if (onBeat && NOTATION[i].tuplet) continue;
+                return NOTATION[i];
             }
 
             var plain = null;
@@ -715,8 +723,14 @@
             return Math.round(tick / stepTicks);
         }
 
+        // Граница куска. С доли можно тянуть до такта; между долями — только
+        // до следующей доли. Эталон Guitar Pro режет именно так: нота,
+        // начавшаяся между долями, сначала доходит до доли
         function barEndFrom(at) {
-            return (Math.floor(at / measureSteps) + 1) * measureSteps;
+            if (at % STEPS === 0) {
+                return (Math.floor(at / measureSteps) + 1) * measureSteps;
+            }
+            return (Math.floor(at / STEPS) + 1) * STEPS;
         }
 
         segments.forEach(function (segment) {
