@@ -4004,6 +4004,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     }
 
     applyMidiBuffer(buffer, onlyChannel) {
+        // Диагностика: видно каждый заход загрузки MIDI и с какой дорожкой
+        console.log('applyMidiBuffer: onlyChannel = ' + onlyChannel +
+            ', аккомпанемент до загрузки ' + (this.accompaniment || []).length);
         const parsed = Midi.parse(buffer);
         
         if (!parsed.ok) {
