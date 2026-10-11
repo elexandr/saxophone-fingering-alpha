@@ -4030,6 +4030,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 { notes: others, ppq: parsed.ppq || parsed.division },
                 -1
             );
+            console.log('MIDI загружен: выбранная дорожка ' + onlyChannel +
+                ', нот на стане ' + (parsed.notes || []).length +
+                ', нот в аккомпанементе ' + this.accompaniment.length);
             parsed.notes = (allTracks[onlyChannel] && allTracks[onlyChannel].notes) || parsed.notes;
         }
         
@@ -4897,6 +4900,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // Аккомпанемент держим в памяти отдельно: на стане его нет,
         // но его можно включить во время проигрывания
         this.accompaniment = this.buildAccompaniment(text, partId);
+        console.log('MusicXML загружен: партия ' + partId +
+            ', нот на стане ' + parsed.elements.length +
+            ', нот в аккомпанементе ' + this.accompaniment.length);
 
         // Предупреждения о том, что ноты могли уехать или потеряться
         const warnings = [];

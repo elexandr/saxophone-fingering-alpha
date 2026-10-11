@@ -440,6 +440,11 @@
         var startCursor = cursor;
         var secondsPerBeat = 60 / (tempo > 0 ? tempo : 80);
 
+        // Диагностика: видно, дошёл ли аккомпанемент до плеера и не приглушён ли
+        console.log('аккомпанемент: нот ' + ((options.accompaniment || []).length) +
+            ', приглушён: ' + !!options.muteAccompaniment +
+            ', мелодия приглушена: ' + !!options.muteMain);
+
         if (options.accompaniment && options.accompaniment.length && !options.muteAccompaniment) {
             options.accompaniment.forEach(function (note) {
                 var startAt = startCursor + (note.startBeat || 0) * secondsPerBeat;
