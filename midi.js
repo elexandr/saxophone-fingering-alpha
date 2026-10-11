@@ -589,7 +589,19 @@
         function pushRest(units) {
             splitUnits(units).forEach(function (part) {
                 var value = durationForUnits(part);
-                elements.push({ isRest: true, duration: value.duration, dotted: value.dotted });
+                var tuplet = null;
+
+                // Паузы внутри триолей тоже триольные: иначе они длиннее
+                // настоящих, и всё после них съезжает по времени
+                if (!isPlainUnits(part)) {
+                    var group = tupletForUnits(part);
+                    if (group) {
+                        value = durationForUnits(group.plainUnits);
+                        tuplet = { actual: group.actual, normal: group.normal };
+                    }
+                }
+
+                elements.push({ isRest: true, duration: value.duration, dotted: value.dotted, tuplet: tuplet });
                 stats.rests++;
             });
         }
