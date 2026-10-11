@@ -648,15 +648,46 @@
         var plain = NOTATION.filter(function (item) { return !item.tuplet; });
         var ternary = NOTATION.filter(function (item) { return !!item.tuplet; });
 
-        function pick(room, untilBar) {
+        // Выбор длительности для куска:
+        //   - если место точно совпадает с записываемой длительностью, берём её;
+        //   - иначе самое большое значение БЕЗ точки: точка делает длительность
+        //     крупнее, и тогда остаток перестаёт укладываться, как в эталоне
+        //     (0,8333 должно дать восьмую 0,5 и триольную восьмую 0,333, а не
+        //     восьмую с точкой 0,75 и триольную 32-ю 0,083)
+        // Выбор длительности для куска. Правило взято из midi2ly (LilyPond):
+        //   - точное совпадение с обычной длительностью берём как есть,
+        //     включая точку;
+        //   - ПЕРВЫЙ кусок ноты берём обычной длительностью БЕЗ ТОЧКИ: так
+        //     0,8333 выходит как восьмая 0,5 и триольная восьмая 0,333,
+        //     а не как восьмая с точкой 0,75 плюс остаток;
+        //   - остаток — самое большое, что влезает, обычное или триольное.
+        function pick(room, untilBar, isFirstPiece) {
+            var limit = Math.min(room, untilBar);
+            if (limit < 1) return null;
+
             var i;
-            for (i = 0; i < plain.length; i++) {
-                if (plain[i].steps <= room && plain[i].steps <= untilBar) return plain[i];
+            for (i = 0; i < NOTATION.length; i++) {
+                if (!NOTATION[i].tuplet && NOTATION[i].steps === limit) return NOTATION[i];
             }
-            for (i = 0; i < ternary.length; i++) {
-                if (ternary[i].steps <= room && ternary[i].steps <= untilBar) return ternary[i];
+
+            var plain = null;
+            if (isFirstPiece) {
+                for (i = 0; i < NOTATION.length; i++) {
+                    var item = NOTATION[i];
+                    if (item.tuplet || item.dotted) continue;
+                    if (item.steps > limit) continue;
+                    if (!plain || item.steps > plain.steps) plain = item;
+                }
+                if (plain) return plain;
             }
-            return null;
+
+            var best = null;
+            for (i = 0; i < NOTATION.length; i++) {
+                var value = NOTATION[i];
+                if (value.dotted || value.steps > limit) continue;
+                if (!best || value.steps > best.steps) best = value;
+            }
+            return best;
         }
 
         var elements = [];
@@ -720,7 +751,7 @@
             guard = 0;
             while (position < endStep && guard++ < 64) {
                 var limit = Math.min(endStep, barEndFrom(position));
-                var piece = pick(limit - position, barEndFrom(position) - position);
+                var piece = pick(limit - position, barEndFrom(position) - position, position === startStep);
                 if (!piece) break;
                 var isLast = position + piece.steps >= endStep;
                 elements.push({
