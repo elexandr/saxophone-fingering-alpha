@@ -566,125 +566,191 @@
         return null;
     }
 
+    // Преобразование нот MIDI в ноты приложения.
+    //
+    // Порядок взят из того, как это делают нотные редакторы:
+    //   1. наложения нот обрезаются по началу следующей;
+    //   2. многоголосие сводится к верхней линии;
+    //   3. начала нот ложатся на сетку в 12 шагов на четверть - она общая
+    //      для обычных долей (2, 4), точек и триолей (3);
+    //   4. запись строится по тактам слева направо: пауза до ноты, затем
+    //      нота, разложенная на выражаемые длительности;
+    //   5. длина до следующего начала сначала набирается обычными
+    //      длительностями (самая большая, что влезает), остаток - триольными;
+    //   6. что не влезло в такт - переносится за черту и связывается лигой.
     function toElements(data, options) {
         options = options || {};
         var shift = options.shift;
-        // Ноты записи могут накладываться: обрезаем каждую по началу следующей.
-        // Иначе сведение в одну линию режет по всем границам сразу, и получаются
-        // лишние ноты, паузы не на своих местах и потерянные триоли
+        var ppq = data.ppq || 480;
+
+        // 1. Обрезка наложений
         var sourceNotes = (data.notes || []).slice().sort(function (a, b) {
             return a.startTick - b.startTick;
         });
-        for (var index = 0; index + 1 < sourceNotes.length; index++) {
-            var current = sourceNotes[index];
-            var following = sourceNotes[index + 1];
+        var onsets = {};
+        sourceNotes.forEach(function (note) { onsets[note.startTick] = true; });
+        for (var i = 0; i + 1 < sourceNotes.length; i++) {
+            var current = sourceNotes[i];
+            var following = sourceNotes[i + 1];
             if (following.startTick > current.startTick &&
                 following.startTick < current.startTick + current.durationTicks) {
                 current.durationTicks = following.startTick - current.startTick;
             }
         }
 
+        // 2. Одна линия: верхняя нота в каждый момент, разрывы от наложений
+        // склеиваем, а повторные начала - нет
         var segments = monophonicSegments(sourceNotes);
+        var merged = [];
+        segments.forEach(function (segment) {
+            var last = merged[merged.length - 1];
+            var boundary = last && Math.abs(last.endTick - segment.startTick) < 2;
+            if (last && last.midi === segment.midi && boundary && !onsets[segment.startTick]) {
+                last.endTick = segment.endTick;
+                return;
+            }
+            merged.push({ midi: segment.midi, startTick: segment.startTick, endTick: segment.endTick });
+        });
+        segments = merged;
 
+        // Сдвиг октавы: сам выбираем, если не задан
         if (shift === undefined || shift === null) {
-            shift = bestOctaveShift(segments.map(function (s) { return s.midi; })).shift;
+            shift = bestOctaveShift(segments.map(function (item) { return item.midi; })).shift;
         }
 
-        var ppq = data.ppq || 480;
+        // 3. Сетка нотной записи
+        var STEPS = 12;
+        var stepTicks = ppq / STEPS;
+        var measureSteps = 4 * STEPS;
+
+        var NOTATION = [];
+        [[1, 0], [2, 1], [4, 2], [8, 3], [16, 4], [32, 5]].forEach(function (pair) {
+            var denominator = pair[0];
+            var base = 4 * STEPS / denominator;
+            var variants = [
+                { factor: 1, dots: 0 },
+                { factor: 1.5, dots: 1 },
+                { factor: 2 / 3, dots: 0, tuplet: { actual: 3, normal: 2 } }
+            ];
+            variants.forEach(function (variant) {
+                var size = base * variant.factor;
+                var rounded = Math.round(size);
+                if (rounded < 1 || Math.abs(size - rounded) > 0.001) return;
+                NOTATION.push({
+                    steps: rounded,
+                    duration: denominator,
+                    dotted: variant.dots,
+                    tuplet: variant.tuplet || null
+                });
+            });
+        });
+        NOTATION.sort(function (a, b) { return b.steps - a.steps; });
+        var plain = NOTATION.filter(function (item) { return !item.tuplet; });
+        var ternary = NOTATION.filter(function (item) { return !!item.tuplet; });
+
+        function pick(room, untilBar) {
+            var i;
+            for (i = 0; i < plain.length; i++) {
+                if (plain[i].steps <= room && plain[i].steps <= untilBar) return plain[i];
+            }
+            for (i = 0; i < ternary.length; i++) {
+                if (ternary[i].steps <= room && ternary[i].steps <= untilBar) return ternary[i];
+            }
+            return null;
+        }
+
         var elements = [];
-        var polyphony = analyzePolyphony(data.notes || []);
         var stats = {
             notes: 0,
             rests: 0,
             skipped: 0,
             splitNotes: 0,
+            tuplets: 0,
             lowest: null,
             highest: null,
-            polyphony: polyphony
+            polyphony: analyzePolyphony(data.notes || [])
         };
 
-        // Позиция в шагах сетки, чтобы копейки не накапливались
-        var cursor = 0;
+        // Приложение хранит одну точку как true, две и три - числом
+        function dotsValue(count) {
+            if (!count) return 0;
+            if (count === 1) return true;
+            return count;
+        }
 
-        function pushRest(units) {
-            splitUnits(units).forEach(function (part) {
-                var value = durationForUnits(part);
-                var tuplet = null;
+        var position = 0;
 
-                // Паузы внутри триолей тоже триольные: иначе они длиннее
-                // настоящих, и всё после них съезжает по времени
-                if (!isPlainUnits(part)) {
-                    var group = tupletForUnits(part);
-                    if (group) {
-                        value = durationForUnits(group.plainUnits);
-                        tuplet = { actual: group.actual, normal: group.normal };
-                    }
-                }
+        function stepsOf(tick) {
+            return Math.round(tick / stepTicks);
+        }
 
-                elements.push({ isRest: true, duration: value.duration, dotted: value.dotted, tuplet: tuplet });
-                stats.rests++;
-            });
+        function barEndFrom(at) {
+            return (Math.floor(at / measureSteps) + 1) * measureSteps;
         }
 
         segments.forEach(function (segment) {
             var midi = segment.midi + shift;
-
             if (midi < RANGE_MIN_MIDI || midi > RANGE_MAX_MIDI) {
                 stats.skipped++;
                 return;
             }
 
-            var startUnits = Math.round((segment.startTick / ppq) / GRID);
-            var lengthUnits = Math.round(((segment.endTick - segment.startTick) / ppq) / GRID);
+            var startStep = stepsOf(segment.startTick);
+            var endStep = stepsOf(segment.endTick);
+            if (endStep <= startStep) endStep = startStep + 1;
 
-            if (startUnits > cursor) {
-                pushRest(startUnits - cursor);
-                cursor = startUnits;
-            } else if (startUnits < cursor) {
-                startUnits = cursor;
+            // Пауза до точного начала ноты
+            var guard = 0;
+            while (position < startStep && guard++ < 128) {
+                var barEnd = barEndFrom(position);
+                var value = pick(startStep - position, barEnd - position);
+                if (!value) break;
+                elements.push({
+                    isRest: true,
+                    duration: value.duration,
+                    dotted: dotsValue(value.dotted),
+                    tuplet: value.tuplet
+                });
+                stats.rests++;
+                position += value.steps;
             }
-
-            if (lengthUnits < 2) lengthUnits = 2; // короче шестнадцатой приложение не умеет
+            if (position < startStep) position = startStep;
 
             var noteName = midiToName(midi);
-            var parts = splitUnits(lengthUnits);
-
-            parts.forEach(function (part) {
-                var value = durationForUnits(part);
-                var tuplet = null;
-
-                // Триоли и квинтоли: MIDI хранит точное время, и по числу
-                // шагов сетки видно, что это группа, а не обычная длительность
-                if (!isPlainUnits(part)) {
-                    var group = tupletForUnits(part);
-                    if (group) {
-                        value = durationForUnits(group.plainUnits);
-                        tuplet = { actual: group.actual, normal: group.normal };
-                    }
-                }
-
+            guard = 0;
+            while (position < endStep && guard++ < 64) {
+                var limit = Math.min(endStep, barEndFrom(position));
+                var piece = pick(limit - position, barEndFrom(position) - position);
+                if (!piece) break;
+                var isLast = position + piece.steps >= endStep;
                 elements.push({
                     isRest: false,
                     noteName: noteName,
-                    duration: value.duration,
-                    dotted: value.dotted,
-                    tuplet: tuplet
+                    duration: piece.duration,
+                    dotted: dotsValue(piece.dotted),
+                    tuplet: piece.tuplet,
+                    // Продолжение той же ноты связываем лигой
+                    tiedToNext: !isLast
                 });
                 stats.notes++;
-                if (tuplet) stats.tuplets = (stats.tuplets || 0) + 1;
-            });
-
-            if (parts.length > 1) stats.splitNotes++;
+                if (piece.tuplet) stats.tuplets++;
+                if (!isLast) stats.splitNotes++;
+                position += piece.steps;
+            }
+            if (position < endStep) position = endStep;
 
             if (stats.lowest === null || midi < stats.lowest) stats.lowest = midi;
             if (stats.highest === null || midi > stats.highest) stats.highest = midi;
-
-            cursor = startUnits + lengthUnits;
         });
 
         var totalBeats = elements.reduce(function (sum, element) {
             var beats = 4 / (element.duration || 4);
-            return sum + (element.dotted ? beats * 1.5 : beats);
+            var dots = element.dotted || 0;
+            if (dots > 0) beats += beats / 2;
+            if (dots > 1) beats += beats / 4;
+            if (dots > 2) beats += beats / 8;
+            if (element.tuplet) beats = beats * (element.tuplet.normal / element.tuplet.actual);
+            return sum + beats;
         }, 0);
 
         return {
