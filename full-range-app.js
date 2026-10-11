@@ -4369,10 +4369,6 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     applyPreset(button) {
         if (!button) return;
 
-        // Кнопка инструмента меняет не только транспонирование, но и тембр:
-        // иначе все инструменты звучат одинаково
-        if (this.melodyPlayer) this.melodyPlayer.setTimbre(button.dataset.preset);
-
         this.appSoundShift = this.clampShift(button.getAttribute('data-app-shift'));
         this.saxShift = this.clampShift(button.getAttribute('data-sax-shift'));
         this.soundingNames = button.getAttribute('data-sounding') === '1';
@@ -5184,13 +5180,6 @@ document.addEventListener('DOMContentLoaded', () => {
             // Узлы подсветки готовим заранее: в кадре не должно быть поиска по документу
             staffManager.prepareHighlightNodes(sequence);
             staffManager.melodyPlayer.setTranspose(staffManager.soundSemitones());
-            // Тембр берём у активной кнопки инструмента: если её ещё не нажимали,
-            // остаётся альт по умолчанию
-            const presetButton = document.querySelector('.btn-preset.active') ||
-                document.querySelector('.btn-preset[data-preset]');
-            if (presetButton && presetButton.dataset.preset) {
-                staffManager.melodyPlayer.setTimbre(presetButton.dataset.preset);
-            }
 
             const started = staffManager.melodyPlayer.play(sequence, staffManager.tempo, {
             accompaniment: staffManager.accompaniment || [],
