@@ -1314,6 +1314,16 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.updateStatus(t('status.deselected'));
     }
     
+    // Имя ноты в spelling текущего режима подписей: в файле нота может быть
+    // записана бемолем, а последовательность подъёма-опускания идёт диезами
+    nameInCurrentMode(name) {
+        if (!name) return name;
+        const mode = this.displayMode === 'flats' ? 'flats' : 'sharps';
+        // Последовательность подъёма-опускания записана одним spelling,
+        // поэтому имя приводим к нему: иначе бемоль из файла не сдвинется
+        return this.convertNoteName ? this.convertNoteName(name, mode) : name;
+    }
+
     // === Лиги и триоли: постановка и снятие ===
 
     // Лига связующая: соединяет выделенные ноты одной высоты.
@@ -1388,9 +1398,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const normal = actual === 3 ? 2 : 4;
         const already = notes.every(n => n.tuplet && n.tuplet.actual === actual);
 
-        // История перед каждой нотой: отмена снимает группу по одной
+        // Группа ставится и снимается целиком: отмена возвращает всю триоль
+        // разом, а не уменьшает её по одной ноте
+        this.pushHistory();
         notes.forEach(note => {
-            this.pushHistory();
             if (already) delete note.tuplet;
             else note.tuplet = { actual: actual, normal: normal };
         });
@@ -1530,7 +1541,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         }
         
         // Получаем следующую ноту в последовательности
-        const newNoteName = this.getNextNoteInSequence(note.noteName, direction);
+        const newNoteName = this.getNextNoteInSequence(this.nameInCurrentMode(note.noteName), direction);
         
         if (newNoteName === note.noteName) {
             this.updateStatus(t('status.pitchLimit'));
@@ -1948,7 +1959,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.pushHistory();
         let moved = 0;
         targets.forEach(note => {
-            const name = this.getNextNoteInSequence(note.noteName, direction);
+            const name = this.getNextNoteInSequence(this.nameInCurrentMode(note.noteName), direction);
             if (name === note.noteName) return;
             const info = this.getNoteInfoByName(name);
             const position = this.positions.find(p => p.id === info.positionId);
@@ -2252,7 +2263,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             if (note.isRest) return;
             
             // Получаем следующую ноту в последовательности
-            const newNoteName = this.getNextNoteInSequence(note.noteName, direction);
+            const newNoteName = this.getNextNoteInSequence(this.nameInCurrentMode(note.noteName), direction);
             
             if (newNoteName === note.noteName) {
                 return; // Невозможно изменить высоту ноты (достигнут предел диапазона)
@@ -4251,9 +4262,24 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         }
     }
     
+    // Имя открытого файла в подвале: видно, с чем работаешь
+    setCurrentFile(name) {
+        this.currentFileName = name || '';
+        const label = document.getElementById('current-file');
+        if (!label) return;
+        if (this.currentFileName) {
+            label.textContent = t('footer.file', { name: this.currentFileName });
+            label.hidden = false;
+        } else {
+            label.textContent = '';
+            label.hidden = true;
+        }
+    }
+
     // Одна кнопка «Открыть»: формат определяем по имени файла
     loadFromFile(file) {
         const name = (file && file.name ? file.name : '').toLowerCase();
+        this.setCurrentFile(file && file.name ? file.name : '');
 
         if (/\.(mid|midi)$/.test(name)) return this.readMidiFile(file);
         if (/\.mxl$/.test(name)) return this.loadPackedMusicXml(file);
@@ -4517,6 +4543,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (confirm(t('status.confirmClear'))) {
             staffManager.pushHistory();
             staffManager.clearAllNotes();
+            staffManager.setCurrentFile('');
         }
     });
     

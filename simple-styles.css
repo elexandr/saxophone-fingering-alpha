@@ -1119,6 +1119,12 @@ body {
     color: #718096;
 }
 
+.app-file {
+    margin: 0 auto;
+    color: #d8d8e8;
+    font-size: 12px;
+}
+
 .app-version {
     font-weight: bold;
     color: #667eea;

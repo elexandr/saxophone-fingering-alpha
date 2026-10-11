@@ -371,6 +371,16 @@
             tail.head = voice;
         }
 
+        // Фразировочная лига: где она открыта, ноты переходят одна в другую
+        // без разрыва. Последняя нота лиги закрывается обычным образом
+        var slurOpen = false;
+        var slurJoined = plan.map(function (item) {
+            if (item.element.slurStart) slurOpen = true;
+            var joined = slurOpen && !item.element.slurEnd;
+            if (item.element.slurEnd) slurOpen = false;
+            return joined;
+        });
+
         plan.forEach(function (item, index) {
             var element = item.element;
             var startAt = cursor;
@@ -378,10 +388,9 @@
             if (!item.skip && !element.isRest) {
                 var frequency = noteToFrequency(element.noteName, self.transpose);
                 if (frequency) {
-                    // Под фразировочной лигой разрыва не делаем: это легато
-                    var previous = plan[index - 1];
-                    var legato = !!element.slurEnd || !!(previous && previous.element.slurStart);
-                    self.scheduleNote(frequency, startAt, item.seconds * (legato ? 1 : 0.92));
+                    // Под лигой нота звучит всю длительность, без разрыва
+                    var joined = slurJoined[index] || (slurJoined[index - 1] && !element.slurEnd && index > 0);
+                    self.scheduleNote(frequency, startAt, item.seconds * (joined ? 1 : 0.92));
                 }
             }
 
