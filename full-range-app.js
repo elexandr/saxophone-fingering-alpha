@@ -4861,8 +4861,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             const element = this.notes.find(n => n.id === id);
             if (!element) return;
 
-            if (item.duration) this.setElementDuration(element, item.duration);
-            if (item.dotted) this.setElementDotted(element, item.dotted);
+            // Точку ставим ВСЕГДА, даже нулевую. Иначе нота наследует точку
+            // от предыдущего элемента (addNote и addRest её перенимают),
+            // и на стане появляются точки там, где их в файле нет
+            if (item.duration) this.setElementDuration(element, item.duration, { history: false });
+            this.setElementDotted(element, item.dotted || 0, { history: false });
             if (item.currentVariant) element.currentVariant = item.currentVariant;
 
             // Поля лиг и триолей: запись их уже умеет, интерфейс появится позже

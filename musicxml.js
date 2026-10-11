@@ -529,17 +529,17 @@
     function listParts(xml) {
         var text = String(xml || '');
         var names = {};
-        var nameRe = /<score-part\s+id="([^"]*)"[\s\S]*?<part-name[^>]*>([\s\S]*?)<\/part-name>/g;
+        var nameRe = /<score-part\s+id=[\x22\x27]([^\x22\x27]*)[\x22\x27][\s\S]*?<part-name[^>]*>([\s\S]*?)<\/part-name>/g;
         var nameMatch;
         while ((nameMatch = nameRe.exec(text))) names[nameMatch[1]] = unescapeXml(nameMatch[2]).trim();
 
         var programs = {};
-        var progRe = /<score-part\s+id="([^"]*)"[\s\S]*?<midi-program>(\d+)<\/midi-program>/g;
+        var progRe = /<score-part\s+id=[\x22\x27]([^\x22\x27]*)[\x22\x27][\s\S]*?<midi-program>(\d+)<\/midi-program>/g;
         var progMatch;
         while ((progMatch = progRe.exec(text))) programs[progMatch[1]] = Number(progMatch[2]);
 
         var list = [];
-        var partRe = /<part\s+id="([^"]*)"[^>]*>([\s\S]*?)<\/part>/g;
+        var partRe = /<part\s+id=[\x22\x27]([^\x22\x27]*)[\x22\x27][^>]*>([\s\S]*?)<\/part>/g;
         var partMatch;
         while ((partMatch = partRe.exec(text))) {
             list.push({
@@ -576,19 +576,19 @@
 
         // Партии: в одном файле может быть несколько инструментов. Саксофон
         // пишется одной линией, а сопровождение - с <backup> и вторым голосом
-        var partRe = /<part\s+id="([^"]*)"[^>]*>([\s\S]*?)<\/part>/g;
+        var partRe = /<part\s+id=[\x22\x27]([^\x22\x27]*)[\x22\x27][^>]*>([\s\S]*?)<\/part>/g;
         var parts = [];
         var partMatch;
         while ((partMatch = partRe.exec(text))) parts.push({ id: partMatch[1], body: partMatch[2] });
         if (!parts.length) parts.push({ id: '', body: text });
 
         var partNames = {};
-        var nameRe = /<score-part\s+id="([^"]*)"[\s\S]*?<part-name[^>]*>([\s\S]*?)<\/part-name>/g;
+        var nameRe = /<score-part\s+id=[\x22\x27]([^\x22\x27]*)[\x22\x27][\s\S]*?<part-name[^>]*>([\s\S]*?)<\/part-name>/g;
         var nameMatch;
         while ((nameMatch = nameRe.exec(text))) partNames[nameMatch[1]] = unescapeXml(nameMatch[2]).trim();
 
         var partPrograms = {};
-        var progRe = /<score-part\s+id="([^"]*)"[\s\S]*?<midi-program>(\d+)<\/midi-program>/g;
+        var progRe = /<score-part\s+id=[\x22\x27]([^\x22\x27]*)[\x22\x27][\s\S]*?<midi-program>(\d+)<\/midi-program>/g;
         var progMatch;
         while ((progMatch = progRe.exec(text))) partPrograms[progMatch[1]] = Number(progMatch[2]);
 
@@ -653,7 +653,7 @@
                 // конец - предыдущей, как это делают нотные редакторы
                 var endingMatch = /<ending([^>]*)>/.exec(item[3]);
                 if (endingMatch) {
-                    var numberMatch = /number="([^"]*)"/.exec(endingMatch[1]);
+                    var numberMatch = /number=[\x22\x27]([^\x22\x27]*)[\x22\x27]/.exec(endingMatch[1]);
                     var typeMatch2 = /type="([a-z]+)"/.exec(endingMatch[1]);
                     var endingNumber = numberMatch ? numberMatch[1] : '';
                     var endingType = typeMatch2 ? typeMatch2[1] : '';
