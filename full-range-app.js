@@ -3932,39 +3932,40 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     
     // Загрузка мелодии из MIDI-файла: разбор, преобразование и перенос на стан.
     // Возвращает сведения о переносе, чтобы их можно было проверить.
-    // Каналы файла: в MIDI это и есть инструменты
+    // Дорожки файла: у каждой своё имя и свой инструмент, как в Guitar Pro
     midiChannels(parsed) {
-        const counts = {};
-        (parsed.notes || []).forEach(note => {
-            const channel = Number(note.channel) || 0;
-            counts[channel] = (counts[channel] || 0) + 1;
-        });
+        const tracks = parsed.tracks || [];
+        return tracks.map((track, index) => ({ track: track, index: index }))
+            .filter(item => item.track.notes && item.track.notes.length)
+            .map(item => {
+                const track = item.track;
+                let name = track.name || '';
 
-        const programs = parsed.programs || {};
-        const trackName = parsed.trackName || '';
+                const programKeys = Object.keys(track.programs || {});
+                const program = programKeys.length ? track.programs[programKeys[0]] : null;
+                let instrument = '';
+                if (typeof program === 'number' && Midi.instrumentName) {
+                    instrument = Midi.instrumentName(program);
+                }
 
-        return Object.keys(counts).map(Number).sort((a, b) => a - b).map(channel => {
-            let name = '';
-            if (channel !== 9 && typeof programs[channel] === 'number' && Midi.instrumentName) {
-                name = Midi.instrumentName(programs[channel]);
-            }
-            // Название дорожки точнее программы: его дал автор файла
-            if (trackName && channel !== 9) {
-                name = name ? (trackName + ' · ' + name) : trackName;
-            }
-            if (channel === 9) name = t('midi.channelDrums');
-            if (!name) name = t('midi.channel', { n: channel + 1 });
+                // Десятый канал в MIDI - ударные
+                const isDrums = !!(track.notes[0] && Number(track.notes[0].channel) === 9);
+                if (isDrums) {
+                    name = name ? (name + ' · ' + t('midi.channelDrums')) : t('midi.channelDrums');
+                } else if (instrument) {
+                    name = name ? (name + ' · ' + instrument) : instrument;
+                }
+                if (!name) name = t('midi.track', { n: item.index + 1 });
 
-            return {
-                id: 'ch' + channel,
-                name: name,
-                noteCount: counts[channel],
-                polyphonic: false,
-                channel: channel
-            };
-        });
+                return {
+                    id: 'tr' + item.index,
+                    name: name,
+                    noteCount: track.notes.length,
+                    polyphonic: false,
+                    trackIndex: item.index
+                };
+            });
     }
-
     // Аккомпанемент из MIDI: все каналы, кроме выбранного и барабанов
     buildMidiAccompaniment(parsed, chosenChannel) {
         const ppq = parsed.ppq || parsed.division || 480;
@@ -3997,8 +3998,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         if (channels.length <= 1) return Promise.resolve(this.applyMidiBuffer(buffer));
 
         return this.choosePart(channels).then(chosen => {
-            const channel = Number(String(chosen).replace('ch', ''));
-            return this.applyMidiBuffer(buffer, channel);
+            const index = Number(String(chosen).replace('tr', ''));
+            return this.applyMidiBuffer(buffer, index);
         });
     }
 
@@ -4018,10 +4019,18 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         if (onlyChannel === undefined || onlyChannel === null) {
             this.accompaniment = [];
         } else {
-            this.accompaniment = this.buildMidiAccompaniment(parsed, onlyChannel);
-            if (parsed.notes) {
-                parsed.notes = parsed.notes.filter(note => (Number(note.channel) || 0) === onlyChannel);
-            }
+            const allTracks = parsed.tracks || [];
+            // Аккомпанемент - ноты всех дорожек, кроме выбранной
+            let others = [];
+            allTracks.forEach((track, index) => {
+                if (index === onlyChannel) return;
+                others = others.concat(track.notes || []);
+            });
+            this.accompaniment = this.buildMidiAccompaniment(
+                { notes: others, ppq: parsed.ppq || parsed.division },
+                -1
+            );
+            parsed.notes = (allTracks[onlyChannel] && allTracks[onlyChannel].notes) || parsed.notes;
         }
         
         const converted = Midi.toElements(parsed);

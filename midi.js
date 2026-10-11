@@ -136,8 +136,10 @@
         var timeSignature = null;
         var programs = {};
         var trackName = '';
+        var trackInfos = [];
         var programs = {};
         var trackName = '';
+        var trackInfos = [];
 
         for (var t = 0; t < trackCount && pos + 8 <= bytes.length; t++) {
             var chunkId = readAscii(bytes, pos, 4);
@@ -163,6 +165,15 @@
             }
             if (!trackName && track.trackName) trackName = track.trackName;
 
+            // Каждая дорожка отдельно: у неё своё имя и свой инструмент,
+            // именно это показывает Guitar Pro в списке дорожек
+            trackInfos.push({
+                name: track.trackName || '',
+                programs: track.programs || {},
+                tempoBpm: track.tempoBpm || 0,
+                notes: track.notes || []
+            });
+
             tracks.push(track.notes);
             pos = body + chunkLength;
         }
@@ -186,6 +197,7 @@
             tempoBpm: tempoBpm,
             timeSignature: timeSignature,
             programs: programs,
+            tracks: trackInfos,
             trackName: trackName,
             notes: notes,
             errors: errors
@@ -202,10 +214,13 @@
         var timeSignature = null;
         var programs = {};
         var trackName = '';
+        var trackInfos = [];
         var programs = {};
         var trackName = '';
+        var trackInfos = [];
         var programs = {};
         var trackName = '';
+        var trackInfos = [];
         var lastTick = 0;
 
         while (pos < end) {
@@ -333,8 +348,10 @@
             tempoBpm: tempoBpm,
             timeSignature: timeSignature,
             programs: programs,
+            tracks: trackInfos,
             trackName: trackName,
             programs: programs,
+            tracks: trackInfos,
             trackName: trackName
         };
     }
