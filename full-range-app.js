@@ -311,6 +311,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.initConsent();
         this.updateLanguageButtons();
         this.updateBarLineButtons();
+        this.updateNotationButtons();
         this.updateMeasureInfo();
         this.updateStatus(t('status.ready'));
     }
@@ -358,6 +359,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         
         this.relayout();
         this.updateBarLineButtons();
+        this.updateNotationButtons();
         this.updateCacheStatus();
     }
     
@@ -1277,6 +1279,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         
         // Кнопки тактовых черт и репризы зависят от выделения
         this.updateBarLineButtons();
+        this.updateNotationButtons();
         
         // Обновляем аппликатуры
         this.updateFingering(note);
@@ -1310,6 +1313,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // Очищаем аппликатуры
         this.clearFingering();
         this.updateBarLineButtons();
+        this.updateNotationButtons();
         
         this.updateStatus(t('status.deselected'));
     }
@@ -1411,8 +1415,49 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         return true;
     }
 
+    // Состояние кнопок лиг: если выделенное уже связано, кнопка показывает
+    // снятие - иначе на планшете не догадаться, что повторное нажатие убирает
+    updateNotationButtons() {
+        const notes = this.selectedElements().filter(n => !n.isRest);
+
+        // Связующая: у одной выделенной ноты лига уходит на следующую,
+        // у набора связываются все соседние пары
+        let tieActive = false;
+        if (notes.length === 1) {
+            const index = this.notes.indexOf(notes[0]);
+            const next = this.notes[index + 1];
+            tieActive = !!notes[0].tiedToNext && !!next &&
+                !next.isRest && next.noteName === notes[0].noteName;
+        } else if (notes.length > 1) {
+            tieActive = notes.every((note, i) => i === notes.length - 1 || note.tiedToNext);
+        }
+
+        const slurActive = notes.length > 1 &&
+            !!notes[0].slurStart && !!notes[notes.length - 1].slurEnd;
+        const tuplet3 = notes.length > 1 && notes.every(n => n.tuplet && n.tuplet.actual === 3);
+        const tuplet5 = notes.length > 1 && notes.every(n => n.tuplet && n.tuplet.actual === 5);
+
+        [
+            ['btn-tie', tieActive, 'btn.tie', 'btn.tie.off'],
+            ['btn-slur', slurActive, 'btn.slur', 'btn.slur.off'],
+            ['btn-tuplet3', tuplet3, 'btn.tuplet3', 'btn.tuplet3.off'],
+            ['btn-tuplet5', tuplet5, 'btn.tuplet5', 'btn.tuplet5.off']
+        ].forEach(([id, active, onKey, offKey]) => {
+            const button = document.getElementById(id);
+            if (!button) return;
+            button.classList.toggle('active', !!active);
+            const span = button.querySelector('span');
+            if (!span) return;
+            const key = active ? offKey : onKey;
+            if (span.getAttribute('data-i18n') === key) return;
+            span.setAttribute('data-i18n', key);
+            span.textContent = t(key);
+        });
+    }
+
     // После смены лиг или триолей: перестроить стан, перерисовать, сохранить
     afterNotationChange(message) {
+        this.updateNotationButtons();
         this.relayout();
         this.drawNotationCurves();
         this.updateStatus(message);
@@ -3213,6 +3258,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             }
             this.relayout();
             this.updateBarLineButtons();
+        this.updateNotationButtons();
             this.scheduleAutosave();
             this.updateStatus(t(side === 'start' ? 'status.repeatStartOff' : 'status.repeatEndOff'));
         });
@@ -3257,6 +3303,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         
         this.relayout();
         this.updateBarLineButtons();
+        this.updateNotationButtons();
         this.scheduleAutosave();
         this.updateStatus(t(mode === 'auto' ? 'status.barlinesAuto' : 'status.barlinesManual'));
     }
@@ -3277,6 +3324,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         note.hasBarLine = true;
         this.relayout();
         this.updateBarLineButtons();
+        this.updateNotationButtons();
         this.updateStatus(t('status.barlineAdded', { target: this.elementLabel(note) }));
         this.scheduleAutosave();
         return note.id;
@@ -3300,6 +3348,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         note.hasBarLine = false;
         this.relayout();
         this.updateBarLineButtons();
+        this.updateNotationButtons();
         this.updateStatus(t('status.barlineRemoved', { target: this.elementLabel(note) }));
         this.scheduleAutosave();
         return true;
@@ -3309,6 +3358,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.notes.forEach(note => { note.hasBarLine = false; });
         this.relayout();
         this.updateBarLineButtons();
+        this.updateNotationButtons();
         this.updateStatus(t('status.barlinesCleared'));
     }
     
@@ -3323,6 +3373,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         note.repeatStart = !note.repeatStart;
         this.relayout();
         this.updateBarLineButtons();
+        this.updateNotationButtons();
         this.scheduleAutosave();
         this.updateStatus(t(note.repeatStart ? 'status.repeatStartOn' : 'status.repeatStartOff'));
         return note.repeatStart;
@@ -3339,6 +3390,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         note.repeatEnd = !note.repeatEnd;
         this.relayout();
         this.updateBarLineButtons();
+        this.updateNotationButtons();
         this.scheduleAutosave();
         this.updateStatus(t(note.repeatEnd ? 'status.repeatEndOn' : 'status.repeatEndOff'));
         return note.repeatEnd;
