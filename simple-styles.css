@@ -1121,8 +1121,8 @@ body {
 
 .app-file {
     margin: 0 auto;
-    color: #d8d8e8;
-    font-size: 12px;
+    font-size: 13px;
+    opacity: 0.85;
 }
 
 .app-version {

@@ -4315,12 +4315,15 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     }
     
     // Имя открытого файла в подвале: видно, с чем работаешь
-    setCurrentFile(name) {
+    setCurrentFile(name, size) {
         this.currentFileName = name || '';
         const label = document.getElementById('current-file');
         if (!label) return;
         if (this.currentFileName) {
-            label.textContent = t('footer.file', { name: this.currentFileName });
+            let text = t('footer.file', { name: this.currentFileName });
+            // Полный путь браузер не отдаёт: из файла доступны имя и размер
+            if (size) text += ' · ' + this.formatFileSize(size);
+            label.textContent = text;
             label.hidden = false;
         } else {
             label.textContent = '';
@@ -4328,10 +4331,17 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         }
     }
 
+    formatFileSize(bytes) {
+        const value = Number(bytes) || 0;
+        if (value < 1024) return value + ' Б';
+        if (value < 1024 * 1024) return (value / 1024).toFixed(1).replace('.', ',') + ' КБ';
+        return (value / (1024 * 1024)).toFixed(1).replace('.', ',') + ' МБ';
+    }
+
     // Одна кнопка «Открыть»: формат определяем по имени файла
     loadFromFile(file) {
         const name = (file && file.name ? file.name : '').toLowerCase();
-        this.setCurrentFile(file && file.name ? file.name : '');
+        this.setCurrentFile(file && file.name ? file.name : '', file ? file.size : 0);
 
         if (/\.(mid|midi)$/.test(name)) return this.readMidiFile(file);
         if (/\.mxl$/.test(name)) return this.loadPackedMusicXml(file);
