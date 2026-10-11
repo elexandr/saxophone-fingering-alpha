@@ -3940,13 +3940,29 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             counts[channel] = (counts[channel] || 0) + 1;
         });
 
-        return Object.keys(counts).map(Number).sort((a, b) => a - b).map(channel => ({
-            id: 'ch' + channel,
-            name: channel === 9 ? t('midi.channelDrums') : t('midi.channel', { n: channel + 1 }),
-            noteCount: counts[channel],
-            polyphonic: false,
-            channel: channel
-        }));
+        const programs = parsed.programs || {};
+        const trackName = parsed.trackName || '';
+
+        return Object.keys(counts).map(Number).sort((a, b) => a - b).map(channel => {
+            let name = '';
+            if (channel !== 9 && typeof programs[channel] === 'number' && Midi.instrumentName) {
+                name = Midi.instrumentName(programs[channel]);
+            }
+            // Название дорожки точнее программы: его дал автор файла
+            if (trackName && channel !== 9) {
+                name = name ? (trackName + ' · ' + name) : trackName;
+            }
+            if (channel === 9) name = t('midi.channelDrums');
+            if (!name) name = t('midi.channel', { n: channel + 1 });
+
+            return {
+                id: 'ch' + channel,
+                name: name,
+                noteCount: counts[channel],
+                polyphonic: false,
+                channel: channel
+            };
+        });
     }
 
     // Аккомпанемент из MIDI: все каналы, кроме выбранного и барабанов
@@ -3962,7 +3978,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             // поэтому они пойдут щелчками: выбрасывать ритм нельзя
             notes.push({
                 midi: note.midi,
-                startBeat: (note.tick || 0) / ppq,
+                startBeat: (note.startTick || note.tick || 0) / ppq,
                 beats: (note.durationTicks || 0) / ppq,
                 drum: channel === 9
             });

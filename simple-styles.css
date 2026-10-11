@@ -1255,6 +1255,54 @@ body.many-selected .note-anchor .duration-panel {
 }
 
 /* Окно «О проекте» */
+/* Окно выбора партии или канала: вертикальный список инструментов */
+.modal-content {
+    background: #fff;
+    border-radius: 12px;
+    padding: 20px 22px;
+    max-width: 460px;
+    width: calc(100% - 40px);
+    max-height: 80vh;
+    overflow: auto;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+}
+
+.modal-content h2 {
+    margin: 0 0 8px;
+    font-size: 18px;
+}
+
+.modal-content p {
+    margin: 0 0 16px;
+    font-size: 13px;
+    line-height: 1.45;
+    opacity: 0.8;
+}
+
+.part-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.part-choice {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 12px 14px;
+    font-size: 14px;
+    font-family: inherit;
+    color: inherit;
+    border: 1px solid #cfd6e4;
+    border-radius: 8px;
+    background: #f7f9fc;
+    cursor: pointer;
+}
+
+.part-choice:hover {
+    background: #eaf1fb;
+    border-color: #7aa5dc;
+}
 .modal {
     position: fixed;
     inset: 0;

@@ -71,8 +71,14 @@
 
     function readAscii(bytes, pos, length) {
         var text = '';
-        for (var i = 0; i < length; i++) {
-            text += String.fromCharCode(bytes[pos + i]);
+        for (var i = 0; i < length; i++) text += String.fromCharCode(bytes[pos + i]);
+
+        // Названия дорожек часто записаны в UTF-8: без этого русские
+        // имена превращаются в мусор
+        if (typeof TextDecoder !== 'undefined') {
+            try {
+                return new TextDecoder('utf-8', { fatal: true }).decode(bytes.slice(pos, pos + length));
+            } catch (error) { /* не UTF-8: оставляем как есть */ }
         }
         return text;
     }
@@ -128,6 +134,10 @@
         var tracks = [];
         var tempoBpm = null;
         var timeSignature = null;
+        var programs = {};
+        var trackName = '';
+        var programs = {};
+        var trackName = '';
 
         for (var t = 0; t < trackCount && pos + 8 <= bytes.length; t++) {
             var chunkId = readAscii(bytes, pos, 4);
@@ -147,6 +157,11 @@
 
             if (tempoBpm === null && track.tempoBpm) tempoBpm = track.tempoBpm;
             if (timeSignature === null && track.timeSignature) timeSignature = track.timeSignature;
+            // Инструменты каналов и название дорожки: по ним назовём инструмент
+            if (track.programs) {
+                Object.keys(track.programs).forEach(function (ch) { programs[ch] = track.programs[ch]; });
+            }
+            if (!trackName && track.trackName) trackName = track.trackName;
 
             tracks.push(track.notes);
             pos = body + chunkLength;
@@ -170,6 +185,8 @@
             trackCount: tracks.length,
             tempoBpm: tempoBpm,
             timeSignature: timeSignature,
+            programs: programs,
+            trackName: trackName,
             notes: notes,
             errors: errors
         };
@@ -183,6 +200,12 @@
         var runningStatus = null;
         var tempoBpm = null;
         var timeSignature = null;
+        var programs = {};
+        var trackName = '';
+        var programs = {};
+        var trackName = '';
+        var programs = {};
+        var trackName = '';
         var lastTick = 0;
 
         while (pos < end) {
@@ -206,7 +229,9 @@
                     if (microPerQuarter > 0 && tempoBpm === null) {
                         tempoBpm = Math.round(60000000 / microPerQuarter);
                     }
-                } else if (metaType === META.timeSignature && metaLength.value >= 2) {
+                } else if (metaType === META.trackName && metaLength.value > 0) {
+            trackName = readAscii(bytes, pos, metaLength.value);
+        } else if (metaType === META.timeSignature && metaLength.value >= 2) {
                     if (timeSignature === null) {
                         timeSignature = {
                             numerator: bytes[pos],
@@ -276,6 +301,9 @@
             }
 
             if (command === 0xc0 || command === 0xd0) {
+                // Смена инструмента: запоминаем программу канала, по ней
+                // и назовём инструмент в списке выбора
+                if (command === 0xc0) programs[channel] = bytes[pos];
                 pos += 1; // один байт
                 continue;
             }
@@ -300,10 +328,27 @@
             }
         });
 
-        return { notes: notes, tempoBpm: tempoBpm, timeSignature: timeSignature };
+        return {
+            notes: notes,
+            tempoBpm: tempoBpm,
+            timeSignature: timeSignature,
+            programs: programs,
+            trackName: trackName,
+            programs: programs,
+            trackName: trackName
+        };
     }
 
     // --- преобразование в ноты приложения ----------------------------------
+
+    // Названия инструментов General MIDI: нужны, чтобы в списке выбора
+    // стояло имя инструмента, а не номер канала. Порядок строго по стандарту
+    var GM_NAMES = ['Рояль','Яркий рояль','Электророяль','Хонки-тонк','Электропиано 1','Электропиано 2','Клавесин','Клавинет','Челеста','Колокольчики','Музыкальная шкатулка','Вибрафон','Маримба','Ксилофон','Трубчатые колокола','Дульцимер','Орган','Орган Хаммонда','Орган рок','Церковный орган','Язычковый орган','Аккордеон','Губная гармоника','Танго-аккордеон','Гитара нейлон','Гитара сталь','Гитара джаз','Гитара чистая','Гитара с перегрузом','Гитара с приглушением','Гитара флажолет','Гитара 2','Бас','Бас медиатор','Бас слэп','Бас 1','Бас 2','Бас смычок','Бас тремоло','Бас флажолет','Скрипка','Альт','Виолончель','Контрабас','Тремоло-струнные','Пиццикато','Арфа','Литавры','Струнные 1','Струнные 2','Синтезаторные струнные 1','Синтезаторные струнные 2','Хор','Голос','Синтезаторный хор','Удар смычком','Труба','Тромбон','Туба','Труба с сурдиной','Валторна','Медные','Синтезаторные медные 1','Синтезаторные медные 2','Саксофон сопрановый','Саксофон альтовый','Саксофон теноровый','Саксофон баритоновый','Гобой','Английский рожок','Фагот','Кларнет','Флейта пикколо','Флейта','Блокфлейта','Флейта Пана','Бутылочная флейта','Сякухати','Свисток','Окарина','Лид 1','Лид 2','Лид 3','Лид 4','Лид 5','Лид 6','Лид 7','Лид 8','Пэд 1','Пэд 2','Пэд 3','Пэд 4','Пэд 5','Пэд 6','Пэд 7','Пэд 8','Эффекты 1','Эффекты 2','Эффекты 3','Эффекты 4','Эффекты 5','Эффекты 6','Эффекты 7','Эффекты 8','Ситар','Банджо','Сямисэн','Кото','Калимба','Волынка','Скрипка народная','Шанай','Колокольчики перкуссия','Агора','Стальные барабаны','Деревянный блок','Тайко','Мелодичные томы','Синтетические томы','Обратные тарелки','Писк','Смычок','Шум','Гром','Голос-эффект','Отражение','Космос','Взрыв'];
+    function instrumentName(program) {
+        var index = Number(program);
+        if (isNaN(index) || index < 0 || index >= GM_NAMES.length) return '';
+        return GM_NAMES[index];
+    }
 
     function midiToName(midi) {
         var octave = Math.floor(midi / 12) - 1;
@@ -689,6 +734,7 @@
         monophonicSegments: monophonicSegments,
         analyzePolyphony: analyzePolyphony,
         midiToName: midiToName,
+        instrumentName: instrumentName,
         bestOctaveShift: bestOctaveShift,
         fitReport: fitReport,
         RANGE_MIN_MIDI: RANGE_MIN_MIDI,
