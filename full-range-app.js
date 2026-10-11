@@ -1550,7 +1550,6 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             const note = this.notes.find(n => n.id === id);
             if (note && note.element) note.element.classList.remove('selected');
         });
-        this.keyFifths = 0; // тональность: сколько знаков при ключе
         this.selectedIds = [];
     }
 
@@ -2273,7 +2272,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 carriedSlur = openSlur;
             }
 
-            if (!shapes.length) return;
+            // Ключевые знаки есть всегда, когда тональность не до мажор
+            const keyShapes = this.drawKeySignature(this.keyFifths);
+            if (!shapes.length && !keyShapes) return;
 
             const layer = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
             const width = system.scrollWidth || system.offsetWidth || 1000;
@@ -2281,7 +2282,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             layer.setAttribute('width', width);
             layer.setAttribute('height', 320);
             layer.setAttribute('viewBox', '0 0 ' + width + ' 320');
-            layer.innerHTML = shapes.join('');
+            layer.innerHTML = keyShapes + shapes.join('');
             system.appendChild(layer);
         });
     }
@@ -2323,6 +2324,28 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             ' C ' + (x1 + (x2 - x1) / 3).toFixed(1) + ' ' + (base + lift).toFixed(1) + ', ' +
             (x1 + 2 * (x2 - x1) / 3).toFixed(1) + ' ' + (base + lift).toFixed(1) + ', ' +
             x2.toFixed(1) + ' ' + base.toFixed(1) + '"/>';
+    }
+
+    // Ключевые знаки: рисуем их между ключом и первой нотой.
+    // Порядок и высоты знаков на скрипичном ключе заданы стандартом
+    drawKeySignature(fifths) {
+        const count = Math.min(7, Math.abs(Number(fifths) || 0));
+        if (!count) return '';
+
+        const sharp = Number(fifths) > 0;
+        // Диезы идут фа-до-соль-ре-ля-ми-си, бемоли наоборот
+        const sharpRows = [90, 120, 80, 110, 140, 100, 130];
+        const flatRows = [130, 100, 140, 110, 150, 120, 160];
+        const rows = sharp ? sharpRows : flatRows;
+
+        let shapes = '';
+        for (let i = 0; i < count; i++) {
+            const x = 42 + i * 10;
+            const y = rows[i];
+            shapes += '<text class="key-sign" x="' + x + '" y="' + (y + 7) + '">' +
+                (sharp ? '\u266F' : '\u266D') + '</text>';
+        }
+        return shapes;
     }
 
     // Половина связующей лиги до края строки

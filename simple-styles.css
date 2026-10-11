@@ -642,6 +642,11 @@ body {
     stroke-width: 1.6;
 }
 
+.notation-layer .key-sign {
+    font-size: 26px;
+    fill: #1a1a1a;
+}
+
 .notation-layer .tuplet-number {
     font-size: 15px;
     font-weight: 600;
