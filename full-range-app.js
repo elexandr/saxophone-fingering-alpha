@@ -5190,6 +5190,11 @@ document.addEventListener('DOMContentLoaded', () => {
             staffManager.prepareHighlightNodes(sequence);
             staffManager.melodyPlayer.setTranspose(staffManager.soundSemitones());
 
+            // Диагностика: тот ли это объект и не пусто ли у него сопровождение
+            console.log('перед проигрыванием: нот на стане ' + staffManager.notes.length +
+                ', нот аккомпанемента ' + (staffManager.accompaniment || []).length +
+                ', это тот же менеджер, что грузил файл: ' + (staffManager.loadedFileMarker === undefined ? 'проверить' : 'да'));
+
             const started = staffManager.melodyPlayer.play(sequence, staffManager.tempo, {
             accompaniment: staffManager.accompaniment || [],
             muteMain: !((document.getElementById('sound-main') || { checked: true }).checked),
