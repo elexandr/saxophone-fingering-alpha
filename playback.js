@@ -389,12 +389,19 @@
 
         if (options.accompaniment && options.accompaniment.length && !options.muteAccompaniment) {
             options.accompaniment.forEach(function (note) {
+                var startAt = startCursor + (note.startBeat || 0) * secondsPerBeat;
+
+                // Ударные: своего барабанного звука нет, играем щелчками.
+                // Бочка и малый - с ударением, тарелки - коротко
+                if (note.drum) {
+                    var kind = Number(note.midi) || 0;
+                    var accent = (kind === 35 || kind === 36 || kind === 38 || kind === 40);
+                    self.scheduleClick(startAt, accent);
+                    return;
+                }
+
                 var frequency = 440 * Math.pow(2, (note.midi - 69) / 12);
-                self.scheduleNote(
-                    frequency,
-                    startCursor + (note.startBeat || 0) * secondsPerBeat,
-                    (note.beats || 1) * secondsPerBeat * 0.98
-                );
+                self.scheduleNote(frequency, startAt, (note.beats || 1) * secondsPerBeat * 0.98);
             });
         }
 

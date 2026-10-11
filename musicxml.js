@@ -64,6 +64,14 @@
         return { step: match[1], alter: alter, octave: Number(match[3]) };
     }
 
+    // Высота в полутонах от C0: нужна, чтобы выбрать верхнюю ноту аккорда
+    function pitchNumber(name) {
+        var pitch = pitchOf(name);
+        if (!pitch) return null;
+        var steps = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+        return pitch.octave * 12 + (steps[pitch.step] || 0) + pitch.alter;
+    }
+
     function escapeText(value) {
         return String(value === null || value === undefined ? '' : value)
             .replace(/&/g, '&amp;')
@@ -674,8 +682,20 @@
 
             var element = parseNote(noteBody);
 
-            // Дополнительные тоны аккорда пропускаем: приложение одноголосное
-            if (element.chordTone) { skippedChords++; continue; }
+            // Аккорд: приложение одноголосное, и для саксофона нужна верхняя
+            // линия, поэтому из тонов аккорда оставляем самый высокий
+            if (element.chordTone) {
+                skippedChords++;
+                var previousNote = elements[elements.length - 1];
+                if (previousNote && !previousNote.isRest) {
+                    var wasPitch = pitchNumber(previousNote.noteName);
+                    var nowPitch = pitchNumber(element.noteName);
+                    if (wasPitch !== null && nowPitch !== null && nowPitch > wasPitch) {
+                        elements[elements.length - 1] = element;
+                    }
+                }
+                continue;
+            }
             // Форшлаг длительности не имеет: полной нотой он сдвинул бы такт
             if (/<grace\s*\/>/.test(noteBody)) { skippedGrace++; continue; }
             // Ноту без высоты, которую мы не понимаем, лучше пропустить

@@ -3932,7 +3932,61 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     
     // Загрузка мелодии из MIDI-файла: разбор, преобразование и перенос на стан.
     // Возвращает сведения о переносе, чтобы их можно было проверить.
-    applyMidiBuffer(buffer) {
+    // Каналы файла: в MIDI это и есть инструменты
+    midiChannels(parsed) {
+        const counts = {};
+        (parsed.notes || []).forEach(note => {
+            const channel = Number(note.channel) || 0;
+            counts[channel] = (counts[channel] || 0) + 1;
+        });
+
+        return Object.keys(counts).map(Number).sort((a, b) => a - b).map(channel => ({
+            id: 'ch' + channel,
+            name: channel === 9 ? t('midi.channelDrums') : t('midi.channel', { n: channel + 1 }),
+            noteCount: counts[channel],
+            polyphonic: false,
+            channel: channel
+        }));
+    }
+
+    // Аккомпанемент из MIDI: все каналы, кроме выбранного и барабанов
+    buildMidiAccompaniment(parsed, chosenChannel) {
+        const ppq = parsed.ppq || parsed.division || 480;
+        if (!parsed.notes || !ppq) return [];
+
+        const notes = [];
+        parsed.notes.forEach(note => {
+            const channel = Number(note.channel) || 0;
+            if (channel === chosenChannel) return;
+            // Десятый канал в MIDI - ударные. Звука барабанов у приложения нет,
+            // поэтому они пойдут щелчками: выбрасывать ритм нельзя
+            notes.push({
+                midi: note.midi,
+                startBeat: (note.tick || 0) / ppq,
+                beats: (note.durationTicks || 0) / ppq,
+                drum: channel === 9
+            });
+        });
+        return notes;
+    }
+
+    // Открытие MIDI: если каналов несколько, спрашиваем, какой инструмент грузить
+    openMidiBuffer(buffer) {
+        const parsed = Midi.parse(buffer);
+        if (!parsed || !parsed.ok || !parsed.notes || !parsed.notes.length) {
+            return Promise.resolve(this.applyMidiBuffer(buffer));
+        }
+
+        const channels = this.midiChannels(parsed);
+        if (channels.length <= 1) return Promise.resolve(this.applyMidiBuffer(buffer));
+
+        return this.choosePart(channels).then(chosen => {
+            const channel = Number(String(chosen).replace('ch', ''));
+            return this.applyMidiBuffer(buffer, channel);
+        });
+    }
+
+    applyMidiBuffer(buffer, onlyChannel) {
         const parsed = Midi.parse(buffer);
         
         if (!parsed.ok) {
@@ -3941,6 +3995,17 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 : t('midi.badFile');
             this.updateStatus(t('midi.failed', { reason: reason }));
             return null;
+        }
+        
+        // Инструменты в MIDI разделяются каналами. Если выбран один, его ноты
+        // идут на стан, а остальные - в аккомпанемент. Барабаны не берём
+        if (onlyChannel === undefined || onlyChannel === null) {
+            this.accompaniment = [];
+        } else {
+            this.accompaniment = this.buildMidiAccompaniment(parsed, onlyChannel);
+            if (parsed.notes) {
+                parsed.notes = parsed.notes.filter(note => (Number(note.channel) || 0) === onlyChannel);
+            }
         }
         
         const converted = Midi.toElements(parsed);
@@ -4023,7 +4088,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
             reader.onload = () => {
                 try {
-                    resolve(this.applyMidiBuffer(reader.result));
+                    resolve(this.openMidiBuffer(reader.result));
                 } catch (error) {
                     this.updateStatus(t('midi.failed', { reason: error.message }));
                     resolve(false);
@@ -4719,11 +4784,27 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     openMusicXml(text) {
         if (typeof MusicXml === 'undefined') return Promise.resolve(false);
         const parts = MusicXml.listParts ? MusicXml.listParts(text) : [];
-        if (parts.length <= 1) {
-            this.applyMusicXml(text);
-            return Promise.resolve(true);
-        }
-        return this.choosePart(parts).then(id => this.applyMusicXml(text, id));
+
+        // Ноты стоят одна под другой: спрашиваем, показывать ли верхнюю линию.
+        // Отказ возвращает к выбору партии, а если партия одна - не грузим
+        const proceed = (id) => {
+            const check = MusicXml.parse(text, id);
+            if (check.skippedChords) {
+                const agreed = window.confirm(t('part.chords', { n: check.skippedChords }));
+                if (!agreed) return null;
+            }
+            return this.applyMusicXml(text, id);
+        };
+
+        const ask = () => {
+            if (parts.length <= 1) return Promise.resolve(proceed(undefined));
+            return this.choosePart(parts).then(id => {
+                const result = proceed(id);
+                return result === null ? ask() : result;
+            });
+        };
+
+        return ask();
     }
 
     // Применяем разобранный MusicXML к модели приложения
