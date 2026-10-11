@@ -1266,6 +1266,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         document.getElementById('btn-note-up').disabled = note.isRest;
         document.getElementById('btn-note-down').disabled = note.isRest;
         document.getElementById('btn-delete-note').disabled = false;
+        // Лиги и триоли доступны, когда есть выделенные ноты
+        const hasNotes = !note.isRest || this.selectedElements().some(n => !n.isRest);
+        ['btn-tie', 'btn-slur', 'btn-tuplet3', 'btn-tuplet5'].forEach(id => {
+            const button = document.getElementById(id);
+            if (button) button.disabled = !hasNotes;
+        });
         // Вставить можно перед выделенным, поэтому кнопка живёт вместе с удалением
         document.getElementById('btn-insert-note').disabled = false;
         
@@ -1295,6 +1301,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         document.getElementById('btn-note-up').disabled = true;
         document.getElementById('btn-note-down').disabled = true;
         document.getElementById('btn-delete-note').disabled = true;
+        ['btn-tie', 'btn-slur', 'btn-tuplet3', 'btn-tuplet5'].forEach(id => {
+            const button = document.getElementById(id);
+            if (button) button.disabled = true;
+        });
         document.getElementById('btn-insert-note').disabled = true;
         
         // Очищаем аппликатуры
@@ -1304,6 +1314,90 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.updateStatus(t('status.deselected'));
     }
     
+    // === Лиги и триоли: постановка и снятие ===
+
+    // Лига связующая: соединяет выделенные ноты одной высоты.
+    // Одна нота связывается со следующей, если высота совпадает
+    toggleTie() {
+        const notes = this.selectedElements().filter(n => !n.isRest);
+        if (!notes.length) return this.updateStatus(t('status.needNotes'));
+
+        const pairs = [];
+        if (notes.length === 1) {
+            const index = this.notes.indexOf(notes[0]);
+            const next = this.notes[index + 1];
+            if (!next || next.isRest || next.noteName !== notes[0].noteName) {
+                return this.updateStatus(t('status.tieNeedsSamePitch'));
+            }
+            pairs.push([notes[0], next]);
+        } else {
+            for (let i = 0; i + 1 < notes.length; i++) {
+                if (notes[i].noteName !== notes[i + 1].noteName) {
+                    return this.updateStatus(t('status.tieNeedsSamePitch'));
+                }
+                pairs.push([notes[i], notes[i + 1]]);
+            }
+        }
+
+        // Если все пары уже связаны, нажатие снимает лигу
+        const allTied = pairs.every(pair => pair[0].tiedToNext);
+        this.pushHistory();
+        pairs.forEach(pair => { pair[0].tiedToNext = !allTied; });
+        this.afterNotationChange(allTied ? t('status.tieRemoved', { n: pairs.length }) : t('status.tieAdded', { n: pairs.length }));
+        return true;
+    }
+
+    // Фразировочная лига: от первой выделенной до последней
+    toggleSlur() {
+        const notes = this.selectedElements().filter(n => !n.isRest);
+        if (notes.length < 2) return this.updateStatus(t('status.needTwoNotes'));
+
+        const first = notes[0];
+        const last = notes[notes.length - 1];
+        const already = first.slurStart && last.slurEnd;
+
+        this.pushHistory();
+        if (already) {
+            first.slurStart = false;
+            last.slurEnd = false;
+            this.afterNotationChange(t('status.slurRemoved'));
+        } else {
+            // Снимаем прежние метки внутри выбранного, чтобы не спорили
+            notes.forEach(note => { note.slurStart = false; note.slurEnd = false; });
+            first.slurStart = true;
+            last.slurEnd = true;
+            this.afterNotationChange(t('status.slurAdded', { n: notes.length }));
+        }
+        return true;
+    }
+
+    // Триоль или квинтоль на выделенные: 3 в времени 2, 5 в времени 4
+    setTuplet(actual) {
+        const notes = this.selectedElements().filter(n => !n.isRest);
+        if (notes.length < 2) return this.updateStatus(t('status.needTwoNotes'));
+
+        const normal = actual === 3 ? 2 : 4;
+        const already = notes.every(n => n.tuplet && n.tuplet.actual === actual);
+
+        this.pushHistory();
+        notes.forEach(note => {
+            if (already) delete note.tuplet;
+            else note.tuplet = { actual: actual, normal: normal };
+        });
+        this.afterNotationChange(already
+            ? t('status.tupletRemoved')
+            : t('status.tupletAdded', { actual: actual, n: notes.length }));
+        return true;
+    }
+
+    // После смены лиг или триолей: перестроить стан, перерисовать, сохранить
+    afterNotationChange(message) {
+        this.relayout();
+        this.drawNotationCurves();
+        this.updateStatus(message);
+        this.scheduleAutosave();
+    }
+
     // === Множественное выделение ===
 
     isNoteSelected(noteId) {
@@ -4340,6 +4434,26 @@ document.addEventListener('DOMContentLoaded', () => {
         releaseButtonFocus();
     });
     
+    document.getElementById('btn-tie').addEventListener('click', () => {
+        staffManager.toggleTie();
+        releaseButtonFocus();
+    });
+
+    document.getElementById('btn-slur').addEventListener('click', () => {
+        staffManager.toggleSlur();
+        releaseButtonFocus();
+    });
+
+    document.getElementById('btn-tuplet3').addEventListener('click', () => {
+        staffManager.setTuplet(3);
+        releaseButtonFocus();
+    });
+
+    document.getElementById('btn-tuplet5').addEventListener('click', () => {
+        staffManager.setTuplet(5);
+        releaseButtonFocus();
+    });
+
     document.getElementById('btn-clear').addEventListener('click', () => {
         if (confirm(t('status.confirmClear'))) {
             staffManager.pushHistory();
