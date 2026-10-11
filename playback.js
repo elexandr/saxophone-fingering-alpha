@@ -209,40 +209,96 @@
         return this.ctx;
     };
 
-    // Одна нота: две расстроенные пилы через фильтр, огибающая и вибрато.
+    // Тембры инструментов. Кнопки Сопрано/Альт/Тенор/Баритон/Гитара/Пианино
+    // должны быть слышны, а не только переставлять ноты: у каждого свой
+    // набор генераторов, фильтр и огибающая.
+    //   sustain     - уровень, до которого звук доходит после атаки
+    //   sustainTime - за сколько до него доходит (у удара быстро, у саксофона плавно)
+    //   vibrato     - частота вибрато, Гц; 0 значит без вибрато
+    var TIMBRES = {
+        soprano: {
+            osc1: 'sawtooth', osc2: 'triangle', detune: 1.006, filterRatio: 8, q: 3.0,
+            attack: 0.020, release: 0.08, peak: 0.30, sustain: 0.72, sustainTime: 0.06,
+            vibrato: 5.6, vibratoDepth: 0.006
+        },
+        alto: {
+            osc1: 'sawtooth', osc2: 'triangle', detune: 1.006, filterRatio: 6, q: 2.5,
+            attack: 0.025, release: 0.09, peak: 0.30, sustain: 0.72, sustainTime: 0.06,
+            vibrato: 5.2, vibratoDepth: 0.005
+        },
+        tenor: {
+            osc1: 'sawtooth', osc2: 'sine', detune: 1.004, filterRatio: 5, q: 2.2,
+            attack: 0.030, release: 0.10, peak: 0.32, sustain: 0.75, sustainTime: 0.07,
+            vibrato: 4.6, vibratoDepth: 0.004
+        },
+        baritone: {
+            osc1: 'sawtooth', osc2: 'sine', detune: 1.003, filterRatio: 4, q: 2.0,
+            attack: 0.035, release: 0.12, peak: 0.34, sustain: 0.78, sustainTime: 0.08,
+            vibrato: 4.0, vibratoDepth: 0.003
+        },
+        // Ударные тембры: звук быстро гаснет, вибрато нет
+        piano: {
+            osc1: 'triangle', osc2: 'sine', detune: 1.002, filterRatio: 5, q: 1.0,
+            attack: 0.005, release: 0.25, peak: 0.34, sustain: 0.10, sustainTime: 0.55,
+            vibrato: 0, vibratoDepth: 0
+        },
+        guitar: {
+            osc1: 'sawtooth', osc2: 'triangle', detune: 1.005, filterRatio: 7, q: 1.6,
+            attack: 0.004, release: 0.20, peak: 0.32, sustain: 0.06, sustainTime: 0.40,
+            vibrato: 0, vibratoDepth: 0
+        }
+    };
+
+    // Какой тембр играет. Ставится кнопками инструментов
+    MelodyPlayer.prototype.setTimbre = function (name) {
+        this.timbreName = TIMBRES[name] ? name : 'alto';
+        return this.timbreName;
+    };
+
+    // Одна нота: два расстроенных генератора через фильтр, огибающая и вибрато.
+    // Параметры берутся из тембра выбранного инструмента
     MelodyPlayer.prototype.scheduleNote = function (frequency, startAt, durationSec) {
         var ctx = this.ctx;
-        var attack = 0.025;
-        var release = 0.09;
+        var timbre = TIMBRES[this.timbreName] || TIMBRES.alto;
+        var attack = timbre.attack;
+        var release = timbre.release;
         var end = startAt + durationSec;
-        var peak = 0.3;
+        var peak = timbre.peak;
 
         var osc1 = ctx.createOscillator();
         var osc2 = ctx.createOscillator();
-        osc1.type = 'sawtooth';
-        osc2.type = 'triangle';
+        osc1.type = timbre.osc1;
+        osc2.type = timbre.osc2;
         osc1.frequency.value = frequency;
-        osc2.frequency.value = frequency * 1.006;
+        osc2.frequency.value = frequency * timbre.detune;
 
         var filter = ctx.createBiquadFilter();
         filter.type = 'lowpass';
-        filter.frequency.value = Math.min(7000, frequency * 6);
-        filter.Q.value = 2.5;
+        filter.frequency.value = Math.min(7000, frequency * timbre.filterRatio);
+        filter.Q.value = timbre.q;
 
         var gain = ctx.createGain();
         gain.gain.setValueAtTime(0.0001, startAt);
         gain.gain.exponentialRampToValueAtTime(peak, startAt + attack);
-        gain.gain.exponentialRampToValueAtTime(peak * 0.72, startAt + attack + 0.06);
-        gain.gain.setTargetAtTime(0.0001, Math.max(startAt + attack + 0.07, end - release), 0.035);
+        gain.gain.exponentialRampToValueAtTime(
+            Math.max(0.0002, peak * timbre.sustain), startAt + attack + timbre.sustainTime);
+        gain.gain.setTargetAtTime(0.0001,
+            Math.max(startAt + attack + timbre.sustainTime + 0.02, end - release), 0.035);
 
-        var lfo = ctx.createOscillator();
-        lfo.type = 'sine';
-        lfo.frequency.value = 5.2;
-        var lfoGain = ctx.createGain();
-        lfoGain.gain.value = frequency * 0.005;
-        lfo.connect(lfoGain);
-        lfoGain.connect(osc1.frequency);
-        lfoGain.connect(osc2.frequency);
+        var voices = [osc1, osc2];
+        if (timbre.vibrato > 0) {
+            var lfo = ctx.createOscillator();
+            lfo.type = 'sine';
+            lfo.frequency.value = timbre.vibrato;
+            var lfoGain = ctx.createGain();
+            lfoGain.gain.value = frequency * timbre.vibratoDepth;
+            lfo.connect(lfoGain);
+            lfoGain.connect(osc1.frequency);
+            lfoGain.connect(osc2.frequency);
+            lfo.start(startAt);
+            lfo.stop(end + 0.2);
+            voices.push(lfo);
+        }
 
         osc1.connect(filter);
         osc2.connect(filter);
@@ -252,12 +308,9 @@
         var stopAt = end + 0.2;
         osc1.start(startAt);
         osc2.start(startAt);
-        lfo.start(startAt);
         osc1.stop(stopAt);
         osc2.stop(stopAt);
-        lfo.stop(stopAt);
 
-        var voices = [osc1, osc2, lfo];
         this.voices.push.apply(this.voices, voices);
 
         // Возвращаем голоса: вызывающий может погасить звук раньше срока
