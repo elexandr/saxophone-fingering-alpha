@@ -422,6 +422,11 @@
     // Подбор слагаемых из разрешённых длительностей.
     // units - длительность в шагах сетки.
     function splitUnits(units) {
+        // Готовую длительность не дробим: обычная нота или триоль уже целые,
+        // а дробление нужно только для того, что приложение не умеет записать
+        if (typeof isPlainUnits === 'function' && (isPlainUnits(units) || tupletForUnits(units))) {
+            return [units];
+        }
         var allowedUnits = ALLOWED.map(function (item) {
             return Math.round(item.beats / GRID);
         });
@@ -524,6 +529,38 @@
     }
 
     // data: результат parse(). Возвращает элементы приложения и сведения о переносе.
+    // Обычные длительности в шагах сетки 1/120: целая, половинная и так далее
+    // с точками. Всё, что сюда не попадает, - триоль или квинтоль
+    var PLAIN_UNITS = (function () {
+        var list = [];
+        [1, 2, 4, 8, 16, 32].forEach(function (den) {
+            var base = 480 / den;
+            list.push(base, base * 1.5, base * 1.75, base * 1.875);
+        });
+        return list;
+    })();
+
+    function isPlainUnits(units) {
+        return PLAIN_UNITS.some(function (value) { return Math.abs(value - units) < 0.01; });
+    }
+
+    // Если длина не обычная, но от неё получается обычная умножением,
+    // значит это группа: триоль 3:2 или квинтоль 5:4
+    function tupletForUnits(units) {
+        var candidates = [
+            { mul: 3, div: 2, actual: 3, normal: 2 },
+            { mul: 5, div: 4, actual: 5, normal: 4 }
+        ];
+        for (var i = 0; i < candidates.length; i++) {
+            var ratio = candidates[i];
+            var plain = units * ratio.mul / ratio.div;
+            if (isPlainUnits(plain)) {
+                return { actual: ratio.actual, normal: ratio.normal, plainUnits: Math.round(plain) };
+            }
+        }
+        return null;
+    }
+
     function toElements(data, options) {
         options = options || {};
         var shift = options.shift;
@@ -582,13 +619,27 @@
 
             parts.forEach(function (part) {
                 var value = durationForUnits(part);
+                var tuplet = null;
+
+                // Триоли и квинтоли: MIDI хранит точное время, и по числу
+                // шагов сетки видно, что это группа, а не обычная длительность
+                if (!isPlainUnits(part)) {
+                    var group = tupletForUnits(part);
+                    if (group) {
+                        value = durationForUnits(group.plainUnits);
+                        tuplet = { actual: group.actual, normal: group.normal };
+                    }
+                }
+
                 elements.push({
                     isRest: false,
                     noteName: noteName,
                     duration: value.duration,
-                    dotted: value.dotted
+                    dotted: value.dotted,
+                    tuplet: tuplet
                 });
                 stats.notes++;
+                if (tuplet) stats.tuplets = (stats.tuplets || 0) + 1;
             });
 
             if (parts.length > 1) stats.splitNotes++;
