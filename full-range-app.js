@@ -312,6 +312,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.updateLanguageButtons();
         this.updateBarLineButtons();
         this.updateNotationButtons();
+
+        // При выделении двух и более нот окошко длительности на ноте убираем:
+        // длительность меняют кнопки в панели, а точки остаются точечной правкой
+        const multiSelected = this.selectedIds.length > 1;
+        document.body.classList.toggle('many-selected', multiSelected);
+        if (multiSelected) this.closeDurationMenus();
         this.updateMeasureInfo();
         this.updateStatus(t('status.ready'));
     }
@@ -360,6 +366,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.relayout();
         this.updateBarLineButtons();
         this.updateNotationButtons();
+
+        // При выделении двух и более нот окошко длительности на ноте убираем:
+        // длительность меняют кнопки в панели, а точки остаются точечной правкой
+        const multiSelected = this.selectedIds.length > 1;
+        document.body.classList.toggle('many-selected', multiSelected);
+        if (multiSelected) this.closeDurationMenus();
         this.updateCacheStatus();
     }
     
@@ -1270,7 +1282,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         document.getElementById('btn-delete-note').disabled = false;
         // Лиги и триоли доступны, когда есть выделенные ноты
         const hasNotes = !note.isRest || this.selectedElements().some(n => !n.isRest);
-        ['btn-tie', 'btn-slur', 'btn-tuplet3', 'btn-tuplet5'].forEach(id => {
+        ['btn-tie', 'btn-slur', 'btn-tuplet3', 'btn-tuplet5', 'btn-duration-longer', 'btn-duration-shorter'].forEach(id => {
             const button = document.getElementById(id);
             if (button) button.disabled = !hasNotes;
         });
@@ -1280,6 +1292,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // Кнопки тактовых черт и репризы зависят от выделения
         this.updateBarLineButtons();
         this.updateNotationButtons();
+
+        // При выделении двух и более нот окошко длительности на ноте убираем:
+        // длительность меняют кнопки в панели, а точки остаются точечной правкой
+        const multiSelected = this.selectedIds.length > 1;
+        document.body.classList.toggle('many-selected', multiSelected);
+        if (multiSelected) this.closeDurationMenus();
         
         // Обновляем аппликатуры
         this.updateFingering(note);
@@ -1294,6 +1312,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // оно оставалось открытым после повторного нажатия по ноте
         this.closeDurationMenus();
         this.clearSelectionMarks();
+        document.body.classList.remove('many-selected');
         
         this.selectedNoteId = null;
         this.selectionAnchorId = null;
@@ -1304,7 +1323,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         document.getElementById('btn-note-up').disabled = true;
         document.getElementById('btn-note-down').disabled = true;
         document.getElementById('btn-delete-note').disabled = true;
-        ['btn-tie', 'btn-slur', 'btn-tuplet3', 'btn-tuplet5'].forEach(id => {
+        ['btn-tie', 'btn-slur', 'btn-tuplet3', 'btn-tuplet5', 'btn-duration-longer', 'btn-duration-shorter'].forEach(id => {
             const button = document.getElementById(id);
             if (button) button.disabled = true;
         });
@@ -1314,6 +1333,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.clearFingering();
         this.updateBarLineButtons();
         this.updateNotationButtons();
+
+        // При выделении двух и более нот окошко длительности на ноте убираем:
+        // длительность меняют кнопки в панели, а точки остаются точечной правкой
+        const multiSelected = this.selectedIds.length > 1;
+        document.body.classList.toggle('many-selected', multiSelected);
+        if (multiSelected) this.closeDurationMenus();
         
         this.updateStatus(t('status.deselected'));
     }
@@ -1326,6 +1351,40 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // Последовательность подъёма-опускания записана одним spelling,
         // поэтому имя приводим к нему: иначе бемоль из файла не сдвинется
         return this.convertNoteName ? this.convertNoteName(name, mode) : name;
+    }
+
+    // Длительность для всего выделения: шаг вверх или вниз по лесенке.
+    // Точки сюда не входят: они остаются точечной правкой одной ноты
+    changeSelectionDuration(direction) {
+        const targets = this.selectedElements();
+        if (!targets.length) return false;
+
+        const movable = targets.filter(element => {
+            const index = DURATION_LADDER.indexOf(Number(element.duration));
+            if (index === -1) return false;
+            const next = index - direction;
+            return next >= 0 && next < DURATION_LADDER.length;
+        });
+
+        if (!movable.length) {
+            this.updateStatus(t('status.durationLimit'));
+            return false;
+        }
+
+        // Одно нажатие - один шаг отката: длительность меняется у всего набора,
+        // а setElementDuration пишет историю сам, поэтому запись приостанавливаем
+        this.pushHistory();
+        this.suspendHistory = true;
+        movable.forEach(element => {
+            const index = DURATION_LADDER.indexOf(Number(element.duration));
+            this.setElementDuration(element, DURATION_LADDER[index - direction], { silent: true });
+        });
+        this.suspendHistory = false;
+
+        this.relayout();
+        this.updateStatus(t('status.durationChangedMany', { n: movable.length }));
+        this.scheduleAutosave();
+        return true;
     }
 
     // === Лиги и триоли: постановка и снятие ===
@@ -3259,6 +3318,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             this.relayout();
             this.updateBarLineButtons();
         this.updateNotationButtons();
+
+        // При выделении двух и более нот окошко длительности на ноте убираем:
+        // длительность меняют кнопки в панели, а точки остаются точечной правкой
+        const multiSelected = this.selectedIds.length > 1;
+        document.body.classList.toggle('many-selected', multiSelected);
+        if (multiSelected) this.closeDurationMenus();
             this.scheduleAutosave();
             this.updateStatus(t(side === 'start' ? 'status.repeatStartOff' : 'status.repeatEndOff'));
         });
@@ -3304,6 +3369,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.relayout();
         this.updateBarLineButtons();
         this.updateNotationButtons();
+
+        // При выделении двух и более нот окошко длительности на ноте убираем:
+        // длительность меняют кнопки в панели, а точки остаются точечной правкой
+        const multiSelected = this.selectedIds.length > 1;
+        document.body.classList.toggle('many-selected', multiSelected);
+        if (multiSelected) this.closeDurationMenus();
         this.scheduleAutosave();
         this.updateStatus(t(mode === 'auto' ? 'status.barlinesAuto' : 'status.barlinesManual'));
     }
@@ -3325,6 +3396,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.relayout();
         this.updateBarLineButtons();
         this.updateNotationButtons();
+
+        // При выделении двух и более нот окошко длительности на ноте убираем:
+        // длительность меняют кнопки в панели, а точки остаются точечной правкой
+        const multiSelected = this.selectedIds.length > 1;
+        document.body.classList.toggle('many-selected', multiSelected);
+        if (multiSelected) this.closeDurationMenus();
         this.updateStatus(t('status.barlineAdded', { target: this.elementLabel(note) }));
         this.scheduleAutosave();
         return note.id;
@@ -3349,6 +3426,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.relayout();
         this.updateBarLineButtons();
         this.updateNotationButtons();
+
+        // При выделении двух и более нот окошко длительности на ноте убираем:
+        // длительность меняют кнопки в панели, а точки остаются точечной правкой
+        const multiSelected = this.selectedIds.length > 1;
+        document.body.classList.toggle('many-selected', multiSelected);
+        if (multiSelected) this.closeDurationMenus();
         this.updateStatus(t('status.barlineRemoved', { target: this.elementLabel(note) }));
         this.scheduleAutosave();
         return true;
@@ -3359,6 +3442,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.relayout();
         this.updateBarLineButtons();
         this.updateNotationButtons();
+
+        // При выделении двух и более нот окошко длительности на ноте убираем:
+        // длительность меняют кнопки в панели, а точки остаются точечной правкой
+        const multiSelected = this.selectedIds.length > 1;
+        document.body.classList.toggle('many-selected', multiSelected);
+        if (multiSelected) this.closeDurationMenus();
         this.updateStatus(t('status.barlinesCleared'));
     }
     
@@ -3374,6 +3463,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.relayout();
         this.updateBarLineButtons();
         this.updateNotationButtons();
+
+        // При выделении двух и более нот окошко длительности на ноте убираем:
+        // длительность меняют кнопки в панели, а точки остаются точечной правкой
+        const multiSelected = this.selectedIds.length > 1;
+        document.body.classList.toggle('many-selected', multiSelected);
+        if (multiSelected) this.closeDurationMenus();
         this.scheduleAutosave();
         this.updateStatus(t(note.repeatStart ? 'status.repeatStartOn' : 'status.repeatStartOff'));
         return note.repeatStart;
@@ -3391,6 +3486,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.relayout();
         this.updateBarLineButtons();
         this.updateNotationButtons();
+
+        // При выделении двух и более нот окошко длительности на ноте убираем:
+        // длительность меняют кнопки в панели, а точки остаются точечной правкой
+        const multiSelected = this.selectedIds.length > 1;
+        document.body.classList.toggle('many-selected', multiSelected);
+        if (multiSelected) this.closeDurationMenus();
         this.scheduleAutosave();
         this.updateStatus(t(note.repeatEnd ? 'status.repeatEndOn' : 'status.repeatEndOff'));
         return note.repeatEnd;
@@ -4581,6 +4682,16 @@ document.addEventListener('DOMContentLoaded', () => {
         releaseButtonFocus();
     });
     
+    document.getElementById('btn-duration-longer').addEventListener('click', () => {
+        staffManager.changeSelectionDuration(1);
+        releaseButtonFocus();
+    });
+
+    document.getElementById('btn-duration-shorter').addEventListener('click', () => {
+        staffManager.changeSelectionDuration(-1);
+        releaseButtonFocus();
+    });
+
     document.getElementById('btn-tie').addEventListener('click', () => {
         staffManager.toggleTie();
         releaseButtonFocus();

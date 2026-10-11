@@ -648,6 +648,11 @@ body {
     fill: #1a1a1a;
     text-anchor: middle;
 }
+/* Выделено двое и больше: длительность меняют кнопки в панели */
+body.many-selected .duration-panel,
+body.many-selected .note-anchor .duration-panel {
+    display: none !important;
+}
 .note-anchor {
     -webkit-touch-callout: none; /* на планшете не всплывает меню браузера */
     -webkit-user-select: none;
