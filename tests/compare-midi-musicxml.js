@@ -175,18 +175,39 @@ var totalBad = 0;
 Object.keys(bars).map(Number).sort(function (a, b) { return a - b; }).forEach(function (bar) {
     var ref = reference.notes.filter(function (n) { return n.bar === bar; });
     var own = mine.notes.filter(function (n) { return n.bar === bar; });
+    // Сопоставляем по высоте и ближайшей позиции, а не по порядку: если нот
+    // в такте разное число, сравнение по порядку теряет смысл
     var problems = [];
-    var count = Math.max(ref.length, own.length);
-    for (var i = 0; i < count; i++) {
-        var a = ref[i];
-        var b = own[i];
-        if (!a) { problems.push('лишняя нота ' + b.name + ' на ' + b.beat.toFixed(3)); continue; }
-        if (!b) { problems.push('пропущена нота ' + a.name + ' на ' + a.beat.toFixed(3)); continue; }
-        if (a.name !== b.name) problems.push('высота: эталон ' + a.name + ', у меня ' + b.name + ' на ' + a.beat.toFixed(3));
-        else if (Math.abs(a.beat - b.beat) > TOL) problems.push('сдвиг ' + (b.beat - a.beat).toFixed(3) + ' на ноте ' + a.name + ' (эталон ' + a.beat.toFixed(3) + ', у меня ' + b.beat.toFixed(3) + ')');
-        else if (Math.abs(a.len - b.len) > TOL) problems.push('длина ' + a.name + ': эталон ' + a.len.toFixed(3) + ', у меня ' + b.len.toFixed(3));
-        else if (a.tie !== b.tie) problems.push('лига у ' + a.name + ': эталон ' + (a.tie ? 'есть' : 'нет') + ', у меня ' + (b.tie ? 'есть' : 'нет'));
-    }
+    var used = [];
+    ref.forEach(function (a) {
+        var bestIndex = -1;
+        var bestDiff = Infinity;
+        own.forEach(function (b, index) {
+            if (used[index]) return;
+            if (b.name !== a.name) return;
+            var diff = Math.abs(b.beat - a.beat);
+            if (diff < bestDiff) { bestDiff = diff; bestIndex = index; }
+        });
+        if (bestIndex < 0) {
+            problems.push('пропущена нота ' + a.name + ' на ' + a.beat.toFixed(3));
+            return;
+        }
+        used[bestIndex] = true;
+        var b = own[bestIndex];
+        if (bestDiff > TOL) {
+            problems.push('сдвиг ' + (b.beat - a.beat).toFixed(3) + ' на ноте ' + a.name +
+                ' (эталон ' + a.beat.toFixed(3) + ', у меня ' + b.beat.toFixed(3) + ')');
+        } else if (Math.abs(a.len - b.len) > TOL) {
+            problems.push('длина ' + a.name + ' на ' + a.beat.toFixed(3) + ': эталон ' + a.len.toFixed(3) +
+                ', у меня ' + b.len.toFixed(3));
+        } else if (a.tie !== b.tie) {
+            problems.push('лига у ' + a.name + ' на ' + a.beat.toFixed(3) + ': эталон ' +
+                (a.tie ? 'есть' : 'нет') + ', у меня ' + (b.tie ? 'есть' : 'нет'));
+        }
+    });
+    own.forEach(function (b, index) {
+        if (!used[index]) problems.push('лишняя нота ' + b.name + ' на ' + b.beat.toFixed(3));
+    });
     if (problems.length) {
         badBars++;
         totalBad += problems.length;
