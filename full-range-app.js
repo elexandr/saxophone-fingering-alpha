@@ -4913,6 +4913,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            // Если выделен текст, сочетание принадлежит браузеру: иначе
+            // нельзя скопировать имя файла или сообщение в подвале
+            const selection = window.getSelection && window.getSelection();
+            if (selection && String(selection.toString() || '').trim()) return;
+
             // Копировать, вырезать, вставить. Клавишу берём по позиции:
             // на русской раскладке те же клавиши дают с, ч, м
             const isC = event.code === 'KeyC' || key === 'c' || key === 'с';

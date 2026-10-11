@@ -1119,10 +1119,25 @@ body {
     color: #718096;
 }
 
+/* Счётчик кэша не выводим: сведения бесполезные для работы */
+#cache-status {
+    display: none;
+}
+
+/* Имя файла строго по середине подвала, текст можно выделять и копировать */
+.status-bar {
+    position: relative;
+    -webkit-user-select: text;
+    user-select: text;
+}
+
 .app-file {
-    margin: 0 auto;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
     font-size: 13px;
     opacity: 0.85;
+    white-space: nowrap;
 }
 
 .app-version {
