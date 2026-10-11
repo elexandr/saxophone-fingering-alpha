@@ -564,7 +564,22 @@
     function toElements(data, options) {
         options = options || {};
         var shift = options.shift;
-        var segments = monophonicSegments(data.notes || []);
+        // Ноты записи могут накладываться: обрезаем каждую по началу следующей.
+        // Иначе сведение в одну линию режет по всем границам сразу, и получаются
+        // лишние ноты, паузы не на своих местах и потерянные триоли
+        var sourceNotes = (data.notes || []).slice().sort(function (a, b) {
+            return a.startTick - b.startTick;
+        });
+        for (var index = 0; index + 1 < sourceNotes.length; index++) {
+            var current = sourceNotes[index];
+            var following = sourceNotes[index + 1];
+            if (following.startTick > current.startTick &&
+                following.startTick < current.startTick + current.durationTicks) {
+                current.durationTicks = following.startTick - current.startTick;
+            }
+        }
+
+        var segments = monophonicSegments(sourceNotes);
 
         if (shift === undefined || shift === null) {
             shift = bestOctaveShift(segments.map(function (s) { return s.midi; })).shift;
@@ -679,7 +694,22 @@
 
     // Сколько нот мелодии попадёт в диапазон при выбранном сдвиге
     function fitReport(data, shift) {
-        var segments = monophonicSegments(data.notes || []);
+        // Ноты записи могут накладываться: обрезаем каждую по началу следующей.
+        // Иначе сведение в одну линию режет по всем границам сразу, и получаются
+        // лишние ноты, паузы не на своих местах и потерянные триоли
+        var sourceNotes = (data.notes || []).slice().sort(function (a, b) {
+            return a.startTick - b.startTick;
+        });
+        for (var index = 0; index + 1 < sourceNotes.length; index++) {
+            var current = sourceNotes[index];
+            var following = sourceNotes[index + 1];
+            if (following.startTick > current.startTick &&
+                following.startTick < current.startTick + current.durationTicks) {
+                current.durationTicks = following.startTick - current.startTick;
+            }
+        }
+
+        var segments = monophonicSegments(sourceNotes);
         var inside = 0;
         segments.forEach(function (segment) {
             var midi = segment.midi + shift;
