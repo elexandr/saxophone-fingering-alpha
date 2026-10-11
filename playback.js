@@ -48,7 +48,9 @@
         return Math.min(3, Math.floor(count));
     }
 
-    function beatsFor(duration, dotted) {
+    // tuplet - отношение группы: { actual: 3, normal: 2 } значит три ноты
+    // в времени двух. Без него длительность считается как обычно
+    function beatsFor(duration, dotted, tuplet) {
         var denominator = duration || 4;
         var beats = 4 / denominator;
 
@@ -62,13 +64,19 @@
             part = part / 2;
         }
 
-        return beats * factor;
+        beats = beats * factor;
+
+        if (tuplet && tuplet.actual && tuplet.normal) {
+            beats = beats * (Number(tuplet.normal) / Number(tuplet.actual));
+        }
+
+        return beats;
     }
 
     // Длительность элемента в секундах при заданном темпе.
     function secondsFor(element, tempo) {
         var bpm = tempo > 0 ? tempo : 80;
-        return beatsFor(element && element.duration, element && element.dotted) * (60 / bpm);
+        return beatsFor(element && element.duration, element && element.dotted, element && element.tuplet) * (60 / bpm);
     }
 
     function totalSeconds(elements, tempo) {
@@ -345,19 +353,41 @@
         // но по звуковым часам, а не по setTimeout
         var timeline = [];
 
-        list.forEach(function (element, index) {
-            var durationSec = secondsFor(element, tempo);
+        // Связанные лигой ноты звучат одним протянутым звуком: вторую не
+        // ударяем, а продлеваем первую. Цепочка из трёх и более тоже
+        var plan = list.map(function (element) {
+            return { element: element, seconds: secondsFor(element, tempo), skip: false, head: null };
+        });
+
+        for (var p = 0; p + 1 < plan.length; p++) {
+            var head = plan[p];
+            var tail = plan[p + 1];
+            if (!head.element.tiedToNext || head.element.isRest || tail.element.isRest) continue;
+            if (head.element.noteName !== tail.element.noteName) continue;
+
+            var voice = head.skip && head.head ? head.head : head;
+            voice.seconds += tail.seconds;
+            tail.skip = true;
+            tail.head = voice;
+        }
+
+        plan.forEach(function (item, index) {
+            var element = item.element;
             var startAt = cursor;
 
-            if (!element.isRest) {
+            if (!item.skip && !element.isRest) {
                 var frequency = noteToFrequency(element.noteName, self.transpose);
                 if (frequency) {
-                    self.scheduleNote(frequency, startAt, durationSec * 0.92);
+                    // Под фразировочной лигой разрыва не делаем: это легато
+                    var previous = plan[index - 1];
+                    var legato = !!element.slurEnd || !!(previous && previous.element.slurStart);
+                    self.scheduleNote(frequency, startAt, item.seconds * (legato ? 1 : 0.92));
                 }
             }
 
             timeline.push({ index: index, element: element, startAt: startAt });
-            cursor += durationSec;
+            // Время идёт по исходным длительностям: лига меняет звук, не такт
+            cursor += secondsFor(element, tempo);
         });
 
         // Метроном: щелчок на каждую долю, ударение на сильную

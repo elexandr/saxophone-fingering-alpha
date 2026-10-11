@@ -1341,8 +1341,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
         // Если все пары уже связаны, нажатие снимает лигу
         const allTied = pairs.every(pair => pair[0].tiedToNext);
-        this.pushHistory();
-        pairs.forEach(pair => { pair[0].tiedToNext = !allTied; });
+        // История пишется перед каждой парой: отмена снимает лиги по одной
+        pairs.forEach(pair => {
+            this.pushHistory();
+            pair[0].tiedToNext = !allTied;
+        });
         this.afterNotationChange(allTied ? t('status.tieRemoved', { n: pairs.length }) : t('status.tieAdded', { n: pairs.length }));
         return true;
     }
@@ -1356,14 +1359,20 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const last = notes[notes.length - 1];
         const already = first.slurStart && last.slurEnd;
 
-        this.pushHistory();
         if (already) {
+            this.pushHistory();
             first.slurStart = false;
             last.slurEnd = false;
             this.afterNotationChange(t('status.slurRemoved'));
         } else {
             // Снимаем прежние метки внутри выбранного, чтобы не спорили
-            notes.forEach(note => { note.slurStart = false; note.slurEnd = false; });
+            notes.forEach(note => {
+                if (!note.slurStart && !note.slurEnd) return;
+                this.pushHistory();
+                note.slurStart = false;
+                note.slurEnd = false;
+            });
+            this.pushHistory();
             first.slurStart = true;
             last.slurEnd = true;
             this.afterNotationChange(t('status.slurAdded', { n: notes.length }));
@@ -1379,8 +1388,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const normal = actual === 3 ? 2 : 4;
         const already = notes.every(n => n.tuplet && n.tuplet.actual === actual);
 
-        this.pushHistory();
+        // История перед каждой нотой: отмена снимает группу по одной
         notes.forEach(note => {
+            this.pushHistory();
             if (already) delete note.tuplet;
             else note.tuplet = { actual: actual, normal: normal };
         });
@@ -2069,6 +2079,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const systems = Array.from(document.querySelectorAll('.system'));
         if (!systems.length) return;
 
+        // Лига, начавшаяся в прошлой строке: дорисовываем её начало слева
+        let carriedSlur = null;
+
         systems.forEach(system => {
             const old = system.querySelector('.notation-layer');
             if (old) old.remove();
@@ -2097,6 +2110,13 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 }
             });
 
+            // Лига из прошлой строки: половина дуги от левого края до её конца
+            if (carriedSlur && notes[0]) {
+                const endNote = notes.find(n => n.slurEnd) || notes[0];
+                shapes.push(this.halfSlur(carriedSlur, endNote, systemRect, 'left'));
+                carriedSlur = null;
+            }
+
             // Триоли и квинтоли: скобка с числом над группой
             let group = null;
             notes.forEach((note, index) => {
@@ -2110,6 +2130,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                     group = null;
                 }
             });
+
+            // Лига не закрылась в этой строке: рисуем половину до правого края
+            if (openSlur && notes.length) {
+                shapes.push(this.halfSlur(openSlur, notes[notes.length - 1], systemRect, 'right'));
+                carriedSlur = openSlur;
+            }
 
             if (!shapes.length) return;
 
@@ -2157,6 +2183,22 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // Концы дуги садим на края головок
         const x1 = a.left + a.width * 0.5;
         const x2 = b.left + b.width * 0.5;
+        return '<path class="slur" d="M ' + x1.toFixed(1) + ' ' + base.toFixed(1) +
+            ' C ' + (x1 + (x2 - x1) / 3).toFixed(1) + ' ' + (base + lift).toFixed(1) + ', ' +
+            (x1 + 2 * (x2 - x1) / 3).toFixed(1) + ' ' + (base + lift).toFixed(1) + ', ' +
+            x2.toFixed(1) + ' ' + base.toFixed(1) + '"/>';
+    }
+
+    // Половина фразировочной лиги до края строки: так лига переходит
+    // на следующую строку, как в нотных редакторах
+    halfSlur(from, to, systemRect, side) {
+        const a = this.noteBox(from, systemRect);
+        const b = this.noteBox(to, systemRect);
+        const above = !from.stemUp;
+        const base = above ? Math.min(a.headY, b.headY) - 18 : Math.max(a.headY, b.headY) + 18;
+        const lift = above ? -22 : 22;
+        const x1 = side === 'right' ? (a.left + a.width * 0.5) : 6;
+        const x2 = side === 'right' ? (systemRect.width - 6) : (b.left + b.width * 0.5);
         return '<path class="slur" d="M ' + x1.toFixed(1) + ' ' + base.toFixed(1) +
             ' C ' + (x1 + (x2 - x1) / 3).toFixed(1) + ' ' + (base + lift).toFixed(1) + ', ' +
             (x1 + 2 * (x2 - x1) / 3).toFixed(1) + ' ' + (base + lift).toFixed(1) + ', ' +
@@ -2943,7 +2985,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     
     // Длительность элемента в четвертях
     elementBeats(element) {
-        return Playback.beatsFor(element.duration, element.dotted);
+        return Playback.beatsFor(element.duration, element.dotted, element.tuplet);
     }
     
     // Длина такта в четвертях: 4/4 -> 4, 6/8 -> 3
@@ -3529,6 +3571,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 displayName: note.displayName,
                 duration: note.duration,
                 dotted: Playback.dotCount(note.dotted),
+                // Лиги и триоли: без них отмена и автосохранение их теряют
+                tiedToNext: !!note.tiedToNext,
+                slurStart: !!note.slurStart,
+                slurEnd: !!note.slurEnd,
+                tuplet: note.tuplet || null,
                 currentVariant: note.currentVariant || 1,
                 hasBarLine: !!note.hasBarLine,
                 repeatStart: !!note.repeatStart,
@@ -3603,6 +3650,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             
             element.duration = item.duration || 4;
             element.dotted = Playback.dotCount(item.dotted);
+            // Лиги и триоли приходят из файла или из отката
+            element.tiedToNext = !!item.tiedToNext;
+            element.slurStart = !!item.slurStart;
+            element.slurEnd = !!item.slurEnd;
+            element.tuplet = item.tuplet || null;
             
             // Возвращаем выбранный вариант аппликатуры
             if (!element.isRest && element.hasFingering && item.currentVariant > 1) {
@@ -4129,22 +4181,29 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const result = [];
         let beat = 0;
         
-        sequence.forEach(element => {
-            const beats = Playback.beatsFor(element.duration, element.dotted);
-            
-            if (!element.isRest) {
+        sequence.forEach((element, index) => {
+            const beats = Playback.beatsFor(element.duration, element.dotted, element.tuplet);
+            const previous = index > 0 ? sequence[index - 1] : null;
+
+            // Связанные лигой ноты в MIDI одним звуком: второй ноты нет,
+            // первый звук просто продлевается
+            const continuesTie = previous && previous.tiedToNext && !previous.isRest &&
+                !element.isRest && previous.noteName === element.noteName;
+
+            if (continuesTie && result.length) {
+                result[result.length - 1].beats += beats;
+            } else if (!element.isRest) {
                 const midi = Midi.nameToMidi(element.noteName || element.displayName);
                 if (midi !== null) {
-                    // В MIDI уходит звучащая высота, а не написанная: иначе
-            // гитарная мелодия окажется в файле на октаву выше
-            result.push({
-                midi: midi + this.soundSemitones(),
-                startBeat: beat,
-                beats: beats
-            });
+                    // В MIDI уходит звучащая высота, а не написанная
+                    result.push({
+                        midi: midi + this.soundSemitones(),
+                        startBeat: beat,
+                        beats: beats
+                    });
                 }
             }
-            
+
             beat += beats;
         });
         
