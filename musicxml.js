@@ -463,6 +463,15 @@
     });
 
     // Длительность: у нас она хранится знаком и точками, а не тиками
+    // MusicXML пишет типы нот как 16th, 32nd, 64th, а не sixteenth,
+    // thirty-second. Без этих ключей шестнадцатая читалась как четверть:
+    // срабатывало запасное значение 4
+    DENOMINATOR_BY_TYPE['16th'] = 16;
+    DENOMINATOR_BY_TYPE['32nd'] = 32;
+    DENOMINATOR_BY_TYPE['64th'] = 64;
+    DENOMINATOR_BY_TYPE['128th'] = 128;
+    DENOMINATOR_BY_TYPE['256th'] = 256;
+
     function parseTiming(noteXml) {
         var type = textOf(noteXml, 'type');
         var denominator = DENOMINATOR_BY_TYPE[type] || 4;
