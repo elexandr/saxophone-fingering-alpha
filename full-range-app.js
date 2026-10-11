@@ -5195,10 +5195,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 ', нот аккомпанемента ' + (staffManager.accompaniment || []).length +
                 ', это тот же менеджер, что грузил файл: ' + (staffManager.loadedFileMarker === undefined ? 'проверить' : 'да'));
 
+            // Настройки проигрывания отдельно от обработчиков. Плеер читает
+            // сопровождение и галочки звука ТОЛЬКО отсюда. Раньше они лежали
+            // в обработчиках, поэтому аккомпанемент не звучал, а галочки
+            // «звук основной» и «звук сопровождения» ни на что не влияли
+            const playOptions = isRepeat
+                ? { leadIn: LOOP_PAUSE_SECONDS, tailMs: 0, metronome: staffManager.metronome, beatsPerBar: staffManager.measureBeats() }
+                : { metronome: staffManager.metronome, beatsPerBar: staffManager.measureBeats() };
+            playOptions.accompaniment = staffManager.accompaniment || [];
+            playOptions.muteMain = !((document.getElementById('sound-main') || { checked: true }).checked);
+            playOptions.muteAccompaniment = !!(document.getElementById('sound-accompaniment') && !document.getElementById('sound-accompaniment').checked);
+
             const started = staffManager.melodyPlayer.play(sequence, staffManager.tempo, {
-            accompaniment: staffManager.accompaniment || [],
-            muteMain: !((document.getElementById('sound-main') || { checked: true }).checked),
-            muteAccompaniment: !!(document.getElementById('sound-accompaniment') && !document.getElementById('sound-accompaniment').checked),
                 onElement: (index, element) => {
                     staffManager.highlightElement(element);
                     staffManager.followPlayback(element);
@@ -5221,10 +5229,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     setPlayingState(false);
                     staffManager.updateStatus(t('status.noAudio'));
                 }
-            },
-            isRepeat
-                ? { leadIn: LOOP_PAUSE_SECONDS, tailMs: 0, metronome: staffManager.metronome, beatsPerBar: staffManager.measureBeats() }
-                : { metronome: staffManager.metronome, beatsPerBar: staffManager.measureBeats() });
+            }, playOptions);
             
             if (!started) return;
             
