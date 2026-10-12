@@ -210,7 +210,7 @@
     };
 
     // Одна нота: две расстроенные пилы через фильтр, огибающая и вибрато.
-    MelodyPlayer.prototype.scheduleNote = function (frequency, startAt, durationSec) {
+    MelodyPlayer.prototype.scheduleNote = function (frequency, startAt, durationSec, destination) {
         var ctx = this.ctx;
         var attack = 0.025;
         var release = 0.09;
@@ -247,7 +247,7 @@
         osc1.connect(filter);
         osc2.connect(filter);
         filter.connect(gain);
-        gain.connect(this.master);
+        gain.connect(destination || this.master);
 
         var stopAt = end + 0.2;
         osc1.start(startAt);
@@ -276,7 +276,7 @@
         return base + output;
     };
     // Щелчок метронома: короткий тик, у сильной доли выше и громче
-    MelodyPlayer.prototype.scheduleClick = function (startAt, accent) {
+    MelodyPlayer.prototype.scheduleClick = function (startAt, accent, destination) {
         var ctx = this.ctx;
         if (!ctx) return;
 
@@ -292,7 +292,7 @@
         gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.05);
 
         osc.connect(gain);
-        gain.connect(this.metronomeGain || this.master);
+        gain.connect(destination || this.metronomeGain || this.master);
 
         osc.start(startAt);
         osc.stop(startAt + 0.08);
@@ -399,6 +399,29 @@
         // места. Его времена абсолютные от начала пьесы, поэтому вычитаем сдвиг
         var accFromBeat = Number(options.accompanimentFromBeat) || 0;
 
+        // Общая громкость сопровождения и отдельная на каждую дорожку.
+        // Это узлы усиления: сколько бы дорожек ни было, нагрузка копеечная
+        var accMasterGain = ctx.createGain();
+        accMasterGain.gain.value = options.accompanimentVolume === undefined
+            ? 1 : Number(options.accompanimentVolume);
+        accMasterGain.connect(this.master);
+        this.accompanimentBus = { master: accMasterGain, tracks: {} };
+
+        function trackBus(trackIndex, trackName) {
+            var key = String(trackIndex === undefined || trackIndex === null ? trackName || '0' : trackIndex);
+            var existing = self.accompanimentBus.tracks[key];
+            if (existing) return existing;
+
+            var settings = (options.accompanimentTracks || {})[key] || {};
+            var node = ctx.createGain();
+            node.gain.value = settings.volume === undefined ? 1 : Number(settings.volume);
+            node.connect(accMasterGain);
+
+            var bus = { key: key, name: trackName || key, gain: node, muted: !!settings.muted };
+            self.accompanimentBus.tracks[key] = bus;
+            return bus;
+        }
+
         function scheduleAccompanimentPortion() {
             // После остановки не досылаем: иначе сопровождение звучит ещё
             // полсекунды-секунду после конца, «догоняя» остановленную игру
@@ -425,15 +448,18 @@
 
                 // Ударные: своего барабанного звука нет, играем щелчками.
                 // Бочка и малый - с ударением, тарелки - коротко
+                var bus = trackBus(note.trackIndex, note.trackName);
+                if (bus.muted) continue;
+
                 if (note.drum) {
                     var kind = Number(note.midi) || 0;
                     var accent = (kind === 35 || kind === 36 || kind === 38 || kind === 40);
-                    self.scheduleClick(startAt, accent);
+                    self.scheduleClick(startAt, accent, bus.gain);
                     continue;
                 }
 
                 var frequency = 440 * Math.pow(2, (note.midi - 69) / 12);
-                self.scheduleNote(frequency, startAt, (note.beats || 1) * secondsPerBeat * 0.98);
+                self.scheduleNote(frequency, startAt, (note.beats || 1) * secondsPerBeat * 0.98, bus.gain);
             }
             if (accIndex < accNotes.length) {
                 // Таймер кладём в общий список: stop() его очистит
@@ -536,6 +562,26 @@
         return true;
     };
 
+    // Громкость сопровождения целиком и по дорожкам. Действует сразу,
+    // в том числе во время игры: меняются значения узлов, ноты не трогаются
+    MelodyPlayer.prototype.setAccompanimentVolume = function (value) {
+        if (this.accompanimentBus && this.accompanimentBus.master) {
+            this.accompanimentBus.master.gain.value = Math.max(0, Math.min(1, Number(value) || 0));
+        }
+    };
+
+    MelodyPlayer.prototype.setTrackVolume = function (trackKey, value) {
+        if (!this.accompanimentBus) return;
+        var bus = this.accompanimentBus.tracks[String(trackKey)];
+        if (bus) bus.gain.gain.value = Math.max(0, Math.min(1, Number(value) || 0));
+    };
+
+    MelodyPlayer.prototype.setTrackMuted = function (trackKey, muted) {
+        if (!this.accompanimentBus) return;
+        var bus = this.accompanimentBus.tracks[String(trackKey)];
+        if (bus) bus.muted = !!muted;
+    };
+
     MelodyPlayer.prototype.stop = function () {
         // Кадр подсветки тоже снимаем: иначе он продолжит тикать
         if (this.frame !== null && this.frame !== undefined) {
@@ -551,6 +597,7 @@
             try { voice.disconnect(); } catch (e) { /* уже отключён */ }
         });
         this.voices = [];
+        this.accompanimentBus = null;
         this.playing = false;
     };
 

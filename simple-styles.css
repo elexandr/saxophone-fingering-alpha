@@ -1609,3 +1609,11 @@ body.many-selected .note-anchor .duration-panel {
 .fine-body[hidden] {
     display: none;
 }
+/* Панель сопровождения: общая громкость и строка на каждую дорожку */
+.accompaniment-panel { margin: 8px 0; padding: 6px 8px; border-radius: 6px; background: rgba(255, 255, 255, 0.06); }
+.accompaniment-panel summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.accompaniment-master { display: flex; align-items: center; gap: 8px; margin: 8px 0 4px; font-size: 12px; }
+.accompaniment-master input[type="range"] { flex: 1; min-width: 40px; }
+.accompaniment-track { display: flex; align-items: center; gap: 6px; margin: 3px 0; font-size: 12px; }
+.accompaniment-name { flex: 0 0 86px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.accompaniment-track input[type="range"] { flex: 1; min-width: 40px; }

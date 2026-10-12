@@ -58,6 +58,8 @@ class FullRangeStaffManager {
         this.suspendHistory = false; // на время массовых вставок история не пишется
         this.keyFifths = 0; // тональность: сколько знаков при ключе
         this.accompaniment = []; // ноты сопровождения: играются, но не показываются
+        this.accompanimentSettings = {}; // громкость и отключение по дорожкам
+        this.accompanimentVolume = 1;    // общая громкость сопровождения
         this.selectedIds = [];
         this.selectionAnchorId = null;
         // Планшет: долгое нажатие ставит якорь, второе касание задаёт конец
@@ -3981,7 +3983,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 midi: note.midi,
                 startBeat: (note.startTick || note.tick || 0) / ppq,
                 beats: (note.durationTicks || 0) / ppq,
-                drum: channel === 9
+                drum: channel === 9,
+                trackIndex: note.trackIndex,
+                trackName: note.trackName
             });
         });
         return notes;
@@ -4027,7 +4031,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             let others = [];
             allTracks.forEach((track, index) => {
                 if (index === onlyChannel) return;
-                others = others.concat(track.notes || []);
+                const trackName = track.name || t('midi.track', { n: index + 1 });
+                (track.notes || []).forEach(note => {
+                    others.push(Object.assign({ trackIndex: index, trackName: trackName }, note));
+                });
             });
             this.accompaniment = this.buildMidiAccompaniment(
                 { notes: others, ppq: parsed.ppq || parsed.division },
@@ -4036,6 +4043,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             console.log('MIDI загружен: выбранная дорожка ' + onlyChannel +
                 ', нот на стане ' + (parsed.notes || []).length +
                 ', нот в аккомпанементе ' + this.accompaniment.length);
+        this.renderAccompanimentPanel();
+            this.renderAccompanimentPanel();
             parsed.notes = (allTracks[onlyChannel] && allTracks[onlyChannel].notes) || parsed.notes;
         }
         
@@ -4361,7 +4370,75 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     }
 
     // Подсветка пресета, который совпал с тонкой настройкой
+    // Панель сопровождения: общая громкость и строка на каждую дорожку
+    renderAccompanimentPanel() {
+        const panel = document.getElementById('accompaniment-panel');
+        const list = document.getElementById('accompaniment-tracks');
+        const master = document.getElementById('accompaniment-volume');
+        if (!panel || !list) return;
+
+        const names = {};
+        (this.accompaniment || []).forEach(note => {
+            const key = String(note.trackIndex === undefined || note.trackIndex === null
+                ? (note.trackName || '0') : note.trackIndex);
+            if (!names[key]) names[key] = note.trackName || key;
+        });
+        const keys = Object.keys(names);
+
+        panel.hidden = keys.length === 0;
+        if (master) master.value = String(Math.round(this.accompanimentVolume * 100));
+        list.innerHTML = '';
+
+        keys.forEach(key => {
+            if (!this.accompanimentSettings[key]) this.accompanimentSettings[key] = { volume: 1, muted: false };
+            const settings = this.accompanimentSettings[key];
+
+            const row = document.createElement('div');
+            row.className = 'accompaniment-track';
+
+            const toggle = document.createElement('input');
+            toggle.type = 'checkbox';
+            toggle.checked = !settings.muted;
+            toggle.title = t('setting.soundAccompaniment.hint');
+            toggle.addEventListener('change', () => {
+                settings.muted = !toggle.checked;
+                if (this.melodyPlayer) this.melodyPlayer.setTrackMuted(key, settings.muted);
+            });
+
+            const label = document.createElement('span');
+            label.className = 'accompaniment-name';
+            label.textContent = names[key];
+
+            const volume = document.createElement('input');
+            volume.type = 'range';
+            volume.min = '0';
+            volume.max = '100';
+            volume.value = String(Math.round(settings.volume * 100));
+            volume.addEventListener('input', () => {
+                settings.volume = Number(volume.value) / 100;
+                if (this.melodyPlayer) this.melodyPlayer.setTrackVolume(key, settings.volume);
+            });
+
+            row.appendChild(toggle);
+            row.appendChild(label);
+            row.appendChild(volume);
+            list.appendChild(row);
+        });
+    }
+
     syncPresetHighlight() {
+        // Общая громкость сопровождения и построение панели дорожек
+        const accompanimentVolume = document.getElementById('accompaniment-volume');
+        if (accompanimentVolume) {
+            accompanimentVolume.addEventListener('input', () => {
+                staffManager.accompanimentVolume = Number(accompanimentVolume.value) / 100;
+                if (staffManager.melodyPlayer) {
+                    staffManager.melodyPlayer.setAccompanimentVolume(staffManager.accompanimentVolume);
+                }
+            });
+        }
+        staffManager.renderAccompanimentPanel();
+
         document.querySelectorAll('.btn-preset').forEach(button => {
             const same = Number(button.getAttribute('data-app-shift')) === this.appSoundShift &&
                 Number(button.getAttribute('data-sax-shift')) === this.saxShift &&
@@ -4779,7 +4856,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 const beats = Playback.beatsFor(element.duration, element.dotted, element.tuplet);
                 if (!element.isRest) {
                     const midi = Midi.nameToMidi(element.noteName || element.displayName);
-                    if (midi !== null) notes.push({ midi: midi, startBeat: beat, beats: beats });
+                    if (midi !== null) {
+                        notes.push({
+                            midi: midi, startBeat: beat, beats: beats,
+                            trackIndex: part.id, trackName: part.name
+                        });
+                    }
                 }
                 beat += beats;
             });
@@ -4906,6 +4988,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         console.log('MusicXML загружен: партия ' + partId +
             ', нот на стане ' + parsed.elements.length +
             ', нот в аккомпанементе ' + this.accompaniment.length);
+        this.renderAccompanimentPanel();
 
         // Предупреждения о том, что ноты могли уехать или потеряться
         const warnings = [];
@@ -5213,6 +5296,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 : { metronome: staffManager.metronome, beatsPerBar: staffManager.measureBeats() };
             playOptions.accompaniment = staffManager.accompaniment || [];
             playOptions.accompanimentFromBeat = accompanimentFromBeat;
+            playOptions.accompanimentTracks = staffManager.accompanimentSettings;
+            playOptions.accompanimentVolume = staffManager.accompanimentVolume;
             playOptions.muteMain = !((document.getElementById('sound-main') || { checked: true }).checked);
             playOptions.muteAccompaniment = !!(document.getElementById('sound-accompaniment') && !document.getElementById('sound-accompaniment').checked);
 
