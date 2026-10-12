@@ -395,12 +395,21 @@
             return (a.startBeat || 0) - (b.startBeat || 0);
         });
         var accIndex = 0;
+        // Если играем с выбранной ноты, сопровождение должно начаться с того же
+        // места. Его времена абсолютные от начала пьесы, поэтому вычитаем сдвиг
+        var accFromBeat = Number(options.accompanimentFromBeat) || 0;
 
         function scheduleAccompanimentPortion() {
             var horizon = ctx.currentTime + 2.0;
             while (accIndex < accNotes.length) {
                 var note = accNotes[accIndex];
-                var startAt = startCursor + (note.startBeat || 0) * secondsPerBeat;
+                var noteBeat = (note.startBeat || 0);
+                // Ноты до места старта пропускаем
+                if (noteBeat + (note.beats || 0) <= accFromBeat) {
+                    accIndex++;
+                    continue;
+                }
+                var startAt = startCursor + (noteBeat - accFromBeat) * secondsPerBeat;
                 if (startAt > horizon) break;
                 accIndex++;
 

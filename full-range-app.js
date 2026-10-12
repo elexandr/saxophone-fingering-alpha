@@ -5199,10 +5199,20 @@ document.addEventListener('DOMContentLoaded', () => {
             // сопровождение и галочки звука ТОЛЬКО отсюда. Раньше они лежали
             // в обработчиках, поэтому аккомпанемент не звучал, а галочки
             // «звук основной» и «звук сопровождения» ни на что не влияли
+            // С какой доли начинаем: сопровождение стартует с того же места
+            let accompanimentFromBeat = 0;
+            if (fromIndex > 0) {
+                for (let i = 0; i < fromIndex; i++) {
+                    const element = fullSequence[i];
+                    accompanimentFromBeat += Playback.beatsFor(element.duration, element.dotted, element.tuplet);
+                }
+            }
+
             const playOptions = isRepeat
                 ? { leadIn: LOOP_PAUSE_SECONDS, tailMs: 0, metronome: staffManager.metronome, beatsPerBar: staffManager.measureBeats() }
                 : { metronome: staffManager.metronome, beatsPerBar: staffManager.measureBeats() };
             playOptions.accompaniment = staffManager.accompaniment || [];
+            playOptions.accompanimentFromBeat = accompanimentFromBeat;
             playOptions.muteMain = !((document.getElementById('sound-main') || { checked: true }).checked);
             playOptions.muteAccompaniment = !!(document.getElementById('sound-accompaniment') && !document.getElementById('sound-accompaniment').checked);
 
