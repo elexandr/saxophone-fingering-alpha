@@ -387,9 +387,29 @@
         var startCursor = cursor;
         var secondsPerBeat = 60 / (tempo > 0 ? tempo : 80);
 
-        if (options.accompaniment && options.accompaniment.length && !options.muteAccompaniment) {
-            options.accompaniment.forEach(function (note) {
+        // Сопровождение планируем ПОРЦИЯМИ, по две секунды вперёд.
+        // Если запланировать все ноты сразу (в файле их бывает больше трёх
+        // тысяч), звуковая система браузера не справляется и замолкает
+        // весь звук - и мелодия тоже
+        var accNotes = (options.accompaniment || []).slice().sort(function (a, b) {
+            return (a.startBeat || 0) - (b.startBeat || 0);
+        });
+        var accIndex = 0;
+
+        function scheduleAccompanimentPortion() {
+            var horizon = ctx.currentTime + 2.0;
+            while (accIndex < accNotes.length) {
+                var note = accNotes[accIndex];
                 var startAt = startCursor + (note.startBeat || 0) * secondsPerBeat;
+                if (startAt > horizon) break;
+                accIndex++;
+
+                // Галочку проверяем на каждом шаге: тогда её можно переключать
+                // прямо во время игры
+                var checkbox = typeof document !== 'undefined'
+                    ? document.getElementById('sound-accompaniment')
+                    : null;
+                if (checkbox && !checkbox.checked) continue;
 
                 // Ударные: своего барабанного звука нет, играем щелчками.
                 // Бочка и малый - с ударением, тарелки - коротко
@@ -397,12 +417,19 @@
                     var kind = Number(note.midi) || 0;
                     var accent = (kind === 35 || kind === 36 || kind === 38 || kind === 40);
                     self.scheduleClick(startAt, accent);
-                    return;
+                    continue;
                 }
 
                 var frequency = 440 * Math.pow(2, (note.midi - 69) / 12);
                 self.scheduleNote(frequency, startAt, (note.beats || 1) * secondsPerBeat * 0.98);
-            });
+            }
+            if (accIndex < accNotes.length && self.playing) {
+                self.accompanimentTimer = setTimeout(scheduleAccompanimentPortion, 500);
+            }
+        }
+
+        if (accNotes.length && !options.muteAccompaniment) {
+            scheduleAccompanimentPortion();
         }
 
         plan.forEach(function (item, index) {
