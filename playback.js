@@ -464,7 +464,10 @@
                     continue;
                 }
 
-                var shift = (self.transpose || 0) + (self.accompanimentTranspose || 0);
+                // Сдвиг сопровождения. Сдвиг инструмента к нему НЕ применяется:
+                // сопровождение двигается только кнопками «Все вверх» и «Все вниз»
+                // и полем «Сдвиг сопровождения»
+                var shift = self.accompanimentTranspose || 0;
                 var frequency = 440 * Math.pow(2, (note.midi + shift - 69) / 12);
                 self.scheduleNote(frequency, startAt, (note.beats || 1) * secondsPerBeat * 0.98, bus.gain);
             }

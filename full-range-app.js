@@ -61,6 +61,7 @@ class FullRangeStaffManager {
         this.accompanimentSettings = {}; // громкость и отключение по дорожкам
         this.accompanimentVolume = 1;    // общая громкость сопровождения
         this.accompanimentShift = 0;     // сдвиг только сопровождения, полутонов
+        this.allTransposeShift = 0;      // на сколько сдвинули все ноты кнопками «Все вверх/вниз»
         this.selectedIds = [];
         this.selectionAnchorId = null;
         // Планшет: долгое нажатие ставит якорь, второе касание задаёт конец
@@ -2428,6 +2429,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     }
 
     clearAllNotes() {
+        // Новый файл - счётчик «все вверх/вниз» начинается заново
+        this.allTransposeShift = 0;
         this.notes.forEach(note => {
             note.element.remove();
         });
@@ -2441,6 +2444,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     }
     
     transposeAllNotes(direction) {
+        // «Все вверх» и «Все вниз» двигают и сопровождение: оно должно ехать
+        // вместе с мелодией. Сдвиг инструмента к нему не применяется
+        this.allTransposeShift += Number(direction) || 0;
+        this.applyAccompanimentShift();
         if (this.notes.length === 0) {
             this.updateStatus(t('status.noNotesToTranspose'));
             return false;
@@ -4372,6 +4379,14 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
     // Подсветка пресета, который совпал с тонкой настройкой
     // Панель сопровождения: общая громкость и строка на каждую дорожку
+    // Итоговый сдвиг сопровождения: «все вверх/вниз» плюс своё поле
+    applyAccompanimentShift() {
+        if (this.melodyPlayer) {
+            this.melodyPlayer.setAccompanimentTranspose(
+                this.accompanimentShift + this.allTransposeShift);
+        }
+    }
+
     renderAccompanimentPanel() {
         const panel = document.getElementById('accompaniment-panel');
         const list = document.getElementById('accompaniment-tracks');
@@ -4444,9 +4459,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             const shift = staffManager.clampShift(Number(value) || 0);
             staffManager.accompanimentShift = shift;
             if (accShiftInput) accShiftInput.value = String(shift);
-            if (staffManager.melodyPlayer) {
-                staffManager.melodyPlayer.setAccompanimentTranspose(shift);
-            }
+            staffManager.applyAccompanimentShift();
         };
         if (accShiftInput) {
             accShiftInput.addEventListener('change', () => applyAccShift(accShiftInput.value));
@@ -5291,7 +5304,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // Узлы подсветки готовим заранее: в кадре не должно быть поиска по документу
             staffManager.prepareHighlightNodes(sequence);
             staffManager.melodyPlayer.setTranspose(staffManager.soundSemitones());
-            staffManager.melodyPlayer.setAccompanimentTranspose(staffManager.accompanimentShift);
+            staffManager.melodyPlayer.setAccompanimentTranspose(
+                staffManager.accompanimentShift + staffManager.allTransposeShift);
 
             // Диагностика: тот ли это объект и не пусто ли у него сопровождение
             console.log('перед проигрыванием: нот на стане ' + staffManager.notes.length +
