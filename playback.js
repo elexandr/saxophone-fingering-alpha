@@ -326,6 +326,12 @@
         this.transpose = Number(semitones) || 0;
     };
 
+    // Отдельный сдвиг сопровождения. Складывается с общим: общий сдвиг
+    // двигает всю пьесу вместе с сопровождением, а этот - только его
+    MelodyPlayer.prototype.setAccompanimentTranspose = function (semitones) {
+        this.accompanimentTranspose = Number(semitones) || 0;
+    };
+
     MelodyPlayer.prototype.play = function (elements, tempo, handlers, options) {
         handlers = handlers || {};
         options = options || {};
@@ -458,7 +464,8 @@
                     continue;
                 }
 
-                var frequency = 440 * Math.pow(2, (note.midi - 69) / 12);
+                var shift = (self.transpose || 0) + (self.accompanimentTranspose || 0);
+                var frequency = 440 * Math.pow(2, (note.midi + shift - 69) / 12);
                 self.scheduleNote(frequency, startAt, (note.beats || 1) * secondsPerBeat * 0.98, bus.gain);
             }
             if (accIndex < accNotes.length) {

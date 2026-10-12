@@ -60,6 +60,7 @@ class FullRangeStaffManager {
         this.accompaniment = []; // ноты сопровождения: играются, но не показываются
         this.accompanimentSettings = {}; // громкость и отключение по дорожкам
         this.accompanimentVolume = 1;    // общая громкость сопровождения
+        this.accompanimentShift = 0;     // сдвиг только сопровождения, полутонов
         this.selectedIds = [];
         this.selectionAnchorId = null;
         // Планшет: долгое нажатие ставит якорь, второе касание задаёт конец
@@ -4437,6 +4438,24 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 }
             });
         }
+        // Сдвиг только сопровождения: общий сдвиг двигает и его тоже
+        const accShiftInput = document.getElementById('accompaniment-shift');
+        const applyAccShift = (value) => {
+            const shift = staffManager.clampShift(Number(value) || 0);
+            staffManager.accompanimentShift = shift;
+            if (accShiftInput) accShiftInput.value = String(shift);
+            if (staffManager.melodyPlayer) {
+                staffManager.melodyPlayer.setAccompanimentTranspose(shift);
+            }
+        };
+        if (accShiftInput) {
+            accShiftInput.addEventListener('change', () => applyAccShift(accShiftInput.value));
+        }
+        const accMinus = document.getElementById('btn-acc-shift-minus');
+        if (accMinus) accMinus.addEventListener('click', () => applyAccShift(staffManager.accompanimentShift - 1));
+        const accPlus = document.getElementById('btn-acc-shift-plus');
+        if (accPlus) accPlus.addEventListener('click', () => applyAccShift(staffManager.accompanimentShift + 1));
+
         staffManager.renderAccompanimentPanel();
 
         document.querySelectorAll('.btn-preset').forEach(button => {
@@ -5272,6 +5291,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Узлы подсветки готовим заранее: в кадре не должно быть поиска по документу
             staffManager.prepareHighlightNodes(sequence);
             staffManager.melodyPlayer.setTranspose(staffManager.soundSemitones());
+            staffManager.melodyPlayer.setAccompanimentTranspose(staffManager.accompanimentShift);
 
             // Диагностика: тот ли это объект и не пусто ли у него сопровождение
             console.log('перед проигрыванием: нот на стане ' + staffManager.notes.length +
