@@ -2431,6 +2431,16 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     clearAllNotes() {
         // Новый файл - счётчик «все вверх/вниз» начинается заново
         this.allTransposeShift = 0;
+
+        // Сопровождение прежнего файла играть не должно: ни нот, ни настроек,
+        // ни сдвига. Без этого после «Очистить всё» фоном звучал старый файл
+        this.accompaniment = [];
+        this.accompanimentSettings = {};
+        this.accompanimentShift = 0;
+        const accShiftField = document.getElementById('accompaniment-shift');
+        if (accShiftField) accShiftField.value = '0';
+        if (this.melodyPlayer) this.melodyPlayer.setAccompanimentTranspose(0);
+        if (typeof this.renderAccompanimentPanel === 'function') this.renderAccompanimentPanel();
         this.notes.forEach(note => {
             note.element.remove();
         });
