@@ -4461,13 +4461,19 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             if (accShiftInput) accShiftInput.value = String(shift);
             staffManager.applyAccompanimentShift();
         };
+        // Единичные обработчики вместо addEventListener: при повторной
+        // инициализации их накапливалось несколько, и шаг выходил в три пункта
         if (accShiftInput) {
-            accShiftInput.addEventListener('change', () => applyAccShift(accShiftInput.value));
+            accShiftInput.onchange = () => applyAccShift(accShiftInput.value);
         }
         const accMinus = document.getElementById('btn-acc-shift-minus');
-        if (accMinus) accMinus.addEventListener('click', () => applyAccShift(staffManager.accompanimentShift - 1));
+        if (accMinus) {
+            accMinus.onclick = () => applyAccShift(Number(staffManager.accompanimentShift) - 1);
+        }
         const accPlus = document.getElementById('btn-acc-shift-plus');
-        if (accPlus) accPlus.addEventListener('click', () => applyAccShift(staffManager.accompanimentShift + 1));
+        if (accPlus) {
+            accPlus.onclick = () => applyAccShift(Number(staffManager.accompanimentShift) + 1);
+        }
 
         staffManager.renderAccompanimentPanel();
 
