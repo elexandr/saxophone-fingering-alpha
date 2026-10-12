@@ -4554,6 +4554,15 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             this.restoring = true;
             this.applyMelody(data);
             this.restoring = false;
+
+            // Сдвиги приходят из автосохранения. Раньше они применялись к звуку,
+            // но не выводились в поля: получалось «в полях нули, а звучит сдвинуто».
+            // Теперь после восстановления поля и подсветка пресетов синхронизируются
+            if (this.afterShiftChange) this.afterShiftChange();
+            if (typeof this.syncPresetHighlight === 'function') this.syncPresetHighlight();
+            if (typeof this.updateInstrumentExample === 'function') this.updateInstrumentExample();
+            console.log('восстановлено из автосохранения: звук приложения ' + this.appSoundShift +
+                ', звук инструмента ' + this.saxShift);
             
             const savedAt = data.timestamp ? new Date(data.timestamp) : null;
             const when = savedAt && !isNaN(savedAt.getTime())
