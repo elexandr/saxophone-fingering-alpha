@@ -5306,6 +5306,12 @@ document.addEventListener('DOMContentLoaded', () => {
             staffManager.melodyPlayer.setTranspose(staffManager.soundSemitones());
             staffManager.melodyPlayer.setAccompanimentTranspose(
                 staffManager.accompanimentShift + staffManager.allTransposeShift);
+            // Диагностика сдвигов: видно, нет ли застрявшего значения
+            console.log('сдвиги до проигрывания: звук мелодии ' + staffManager.soundSemitones() +
+                ', поле сопровождения ' + staffManager.accompanimentShift +
+                ', все вверх/вниз ' + staffManager.allTransposeShift +
+                ' → плеер: мелодия ' + staffManager.melodyPlayer.transpose +
+                ', сопровождение ' + staffManager.melodyPlayer.accompanimentTranspose);
 
             // Диагностика: тот ли это объект и не пусто ли у него сопровождение
             console.log('перед проигрыванием: нот на стане ' + staffManager.notes.length +
