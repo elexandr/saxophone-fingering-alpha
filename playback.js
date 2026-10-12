@@ -400,6 +400,9 @@
         var accFromBeat = Number(options.accompanimentFromBeat) || 0;
 
         function scheduleAccompanimentPortion() {
+            // После остановки не досылаем: иначе сопровождение звучит ещё
+            // полсекунды-секунду после конца, «догоняя» остановленную игру
+            if (!self.playing) return;
             var horizon = ctx.currentTime + 2.0;
             while (accIndex < accNotes.length) {
                 var note = accNotes[accIndex];
@@ -432,8 +435,10 @@
                 var frequency = 440 * Math.pow(2, (note.midi - 69) / 12);
                 self.scheduleNote(frequency, startAt, (note.beats || 1) * secondsPerBeat * 0.98);
             }
-            if (accIndex < accNotes.length && self.playing) {
+            if (accIndex < accNotes.length) {
+                // Таймер кладём в общий список: stop() его очистит
                 self.accompanimentTimer = setTimeout(scheduleAccompanimentPortion, 500);
+                self.timers.push(self.accompanimentTimer);
             }
         }
 
