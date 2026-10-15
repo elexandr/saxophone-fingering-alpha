@@ -4943,6 +4943,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 }
                 beat += beats;
             });
+
+            // Диагностика: где кончается партия. Если числа сильно разойдутся
+            // с длиной пьесы, значит позиции накапливаются неверно
+            console.log('сопровождение, партия ' + part.id + ' (' + (part.name || '') + '): нот ' +
+                parsed.elements.length + ', конец на доле ' + beat.toFixed(2) +
+                ', сдвиг партии ' + partShift);
         });
         return notes;
     }
