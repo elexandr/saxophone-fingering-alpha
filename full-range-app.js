@@ -4899,6 +4899,17 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     }
     // Аккомпанемент: ноты невыбранных партий. Играются как написано, без
     // сдвига инструмента: сопровождение написано в концертной высоте
+    // Транспозиция партии из <transpose>: на сколько она звучит ниже написанного.
+    // Партии транспонирующих инструментов записаны в письменной высоте.
+    // Мелодию выправляет сдвиг инструмента, а чужие партии - вот это
+    partTransposeSemitones(text, partId) {
+        const found = new RegExp('<part[^>]*id=[\\x22\\x27]' + partId + '[\\x22\\x27][\\s\\S]*?</part>').exec(text);
+        if (!found) return 0;
+        const chromatic = /<chromatic>(-?\d+)<\/chromatic>/.exec(found[0]);
+        const octave = /<octave-change>(-?\d+)<\/octave-change>/.exec(found[0]);
+        return (chromatic ? Number(chromatic[1]) : 0) + (octave ? Number(octave[1]) * 12 : 0);
+    }
+
     buildAccompaniment(text, chosenId) {
         if (typeof MusicXml === 'undefined' || !MusicXml.listParts) return [];
         const parts = MusicXml.listParts(text);
@@ -4908,6 +4919,15 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         parts.forEach(part => {
             if (part.id === chosenId) return;
             const parsed = MusicXml.parse(text, part.id);
+
+            // Ударные в MusicXML: партия барабанов. Без пометки её ноты
+            // играются как звуковысотные и превращают сопровождение в кашу
+            const isDrums = /drum|percussion|ударн|барабан/i.test(part.name || '');
+            if (isDrums) parsed.isDrums = true;
+
+            // На сколько партия звучит ниже написанного (транспонирующие инструменты)
+            const partShift = this.partTransposeSemitones(text, part.id);
+
             let beat = 0;
             parsed.elements.forEach(element => {
                 const beats = Playback.beatsFor(element.duration, element.dotted, element.tuplet);
@@ -4915,7 +4935,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                     const midi = Midi.nameToMidi(element.noteName || element.displayName);
                     if (midi !== null) {
                         notes.push({
-                            midi: midi, startBeat: beat, beats: beats,
+                            midi: midi + partShift, startBeat: beat, beats: beats,
+                            drum: isDrums,
                             trackIndex: part.id, trackName: part.name
                         });
                     }
