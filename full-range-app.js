@@ -4026,9 +4026,6 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     }
 
     applyMidiBuffer(buffer, onlyChannel) {
-        // Диагностика: видно каждый заход загрузки MIDI и с какой дорожкой
-        console.log('applyMidiBuffer: onlyChannel = ' + onlyChannel +
-            ', аккомпанемент до загрузки ' + (this.accompaniment || []).length);
         const parsed = Midi.parse(buffer);
         
         if (!parsed.ok) {
@@ -4058,10 +4055,6 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 { notes: others, ppq: parsed.ppq || parsed.division },
                 -1
             );
-            console.log('MIDI загружен: выбранная дорожка ' + onlyChannel +
-                ', нот на стане ' + (parsed.notes || []).length +
-                ', нот в аккомпанементе ' + this.accompaniment.length);
-        this.renderAccompanimentPanel();
             this.renderAccompanimentPanel();
             parsed.notes = (allTracks[onlyChannel] && allTracks[onlyChannel].notes) || parsed.notes;
         }
@@ -4577,8 +4570,6 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             if (this.afterShiftChange) this.afterShiftChange();
             if (typeof this.syncPresetHighlight === 'function') this.syncPresetHighlight();
             if (typeof this.updateInstrumentExample === 'function') this.updateInstrumentExample();
-            console.log('восстановлено из автосохранения: звук приложения ' + this.appSoundShift +
-                ', звук инструмента ' + this.saxShift);
             
             const savedAt = data.timestamp ? new Date(data.timestamp) : null;
             const when = savedAt && !isNaN(savedAt.getTime())
@@ -4897,58 +4888,39 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         if (!best) throw new Error('в архиве нет MusicXML');
         return best;
     }
-    // Аккомпанемент: ноты невыбранных партий. Играются как написано, без
-    // сдвига инструмента: сопровождение написано в концертной высоте
-    // Транспозиция партии из <transpose>: на сколько она звучит ниже написанного.
-    // Партии транспонирующих инструментов записаны в письменной высоте.
-    // Мелодию выправляет сдвиг инструмента, а чужие партии - вот это
-    partTransposeSemitones(text, partId) {
-        const found = new RegExp('<part[^>]*id=[\\x22\\x27]' + partId + '[\\x22\\x27][\\s\\S]*?</part>').exec(text);
-        if (!found) return 0;
-        const chromatic = /<chromatic>(-?\d+)<\/chromatic>/.exec(found[0]);
-        const octave = /<octave-change>(-?\d+)<\/octave-change>/.exec(found[0]);
-        return (chromatic ? Number(chromatic[1]) : 0) + (octave ? Number(octave[1]) * 12 : 0);
-    }
-
+    // Аккомпанемент: ноты невыбранных партий. Играются в концертной высоте:
+    // партии транспонирующих инструментов записаны в письменной, а <transpose>
+    // говорит, на сколько такая партия звучит выше написанного
     buildAccompaniment(text, chosenId) {
-        if (typeof MusicXml === 'undefined' || !MusicXml.listParts) return [];
+        if (typeof MusicXml === 'undefined' || !MusicXml.listParts || !MusicXml.parsePart) return [];
         const parts = MusicXml.listParts(text);
         if (parts.length <= 1) return [];
 
         const notes = [];
         parts.forEach(part => {
             if (part.id === chosenId) return;
-            const parsed = MusicXml.parse(text, part.id);
 
-            // Ударные в MusicXML: партия барабанов. Без пометки её ноты
-            // играются как звуковысотные и превращают сопровождение в кашу
-            const isDrums = /drum|percussion|ударн|барабан/i.test(part.name || '');
-            if (isDrums) parsed.isDrums = true;
+            // Разбор для сопровождения, а не для стана: нужны все голоса и
+            // настоящие позиции. Прежний разбор шёл по длительностям подряд и
+            // не видел <backup>, поэтому время всех голосов кроме главного
+            // терялось и партия кончалась раньше конца пьесы
+            const read = MusicXml.parsePart(text, part.id);
 
-            // На сколько партия звучит ниже написанного (транспонирующие инструменты)
-            const partShift = this.partTransposeSemitones(text, part.id);
+            // Ударные: партия барабанов. Без пометки её ноты играются как
+            // звуковысотные и превращают сопровождение в кашу
+            const isDrums = read.percussion ||
+                /drum|percussion|ударн|барабан/i.test(part.name || '');
 
-            let beat = 0;
-            parsed.elements.forEach(element => {
-                const beats = Playback.beatsFor(element.duration, element.dotted, element.tuplet);
-                if (!element.isRest) {
-                    const midi = Midi.nameToMidi(element.noteName || element.displayName);
-                    if (midi !== null) {
-                        notes.push({
-                            midi: midi + partShift, startBeat: beat, beats: beats,
-                            drum: isDrums,
-                            trackIndex: part.id, trackName: part.name
-                        });
-                    }
-                }
-                beat += beats;
+            read.notes.forEach(note => {
+                notes.push({
+                    midi: note.midi,
+                    startBeat: note.startBeat,
+                    beats: note.beats,
+                    drum: isDrums,
+                    trackIndex: part.id,
+                    trackName: part.name
+                });
             });
-
-            // Диагностика: где кончается партия. Если числа сильно разойдутся
-            // с длиной пьесы, значит позиции накапливаются неверно
-            console.log('сопровождение, партия ' + part.id + ' (' + (part.name || '') + '): нот ' +
-                parsed.elements.length + ', конец на доле ' + beat.toFixed(2) +
-                ', сдвиг партии ' + partShift);
         });
         return notes;
     }
@@ -5069,9 +5041,6 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // Аккомпанемент держим в памяти отдельно: на стане его нет,
         // но его можно включить во время проигрывания
         this.accompaniment = this.buildAccompaniment(text, partId);
-        console.log('MusicXML загружен: партия ' + partId +
-            ', нот на стане ' + parsed.elements.length +
-            ', нот в аккомпанементе ' + this.accompaniment.length);
         this.renderAccompanimentPanel();
 
         // Предупреждения о том, что ноты могли уехать или потеряться
@@ -5358,17 +5327,6 @@ document.addEventListener('DOMContentLoaded', () => {
             staffManager.melodyPlayer.setTranspose(staffManager.soundSemitones());
             staffManager.melodyPlayer.setAccompanimentTranspose(
                 staffManager.accompanimentShift + staffManager.allTransposeShift);
-            // Диагностика сдвигов: видно, нет ли застрявшего значения
-            console.log('сдвиги до проигрывания: звук мелодии ' + staffManager.soundSemitones() +
-                ', поле сопровождения ' + staffManager.accompanimentShift +
-                ', все вверх/вниз ' + staffManager.allTransposeShift +
-                ' → плеер: мелодия ' + staffManager.melodyPlayer.transpose +
-                ', сопровождение ' + staffManager.melodyPlayer.accompanimentTranspose);
-
-            // Диагностика: тот ли это объект и не пусто ли у него сопровождение
-            console.log('перед проигрыванием: нот на стане ' + staffManager.notes.length +
-                ', нот аккомпанемента ' + (staffManager.accompaniment || []).length +
-                ', это тот же менеджер, что грузил файл: ' + (staffManager.loadedFileMarker === undefined ? 'проверить' : 'да'));
 
             // Настройки проигрывания отдельно от обработчиков. Плеер читает
             // сопровождение и галочки звука ТОЛЬКО отсюда. Раньше они лежали

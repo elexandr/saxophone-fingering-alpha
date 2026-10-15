@@ -768,10 +768,269 @@
         };
     }
 
+    // === Чтение партии для сопровождения ===
+    //
+    // parse() выше сводит партию к одной линии для стана: он читает ноты подряд,
+    // а <backup> и <forward> не разбирает вовсе. Для сопровождения этого мало:
+    // у фортепиано, струнных и барабанов ноты идут в несколько голосов, и время
+    // всех голосов кроме главного теряется. Из-за этого партия кончалась раньше
+    // пьесы: барабаны на 218-й доле из 360.
+    //
+    // Здесь другая задача - нужны ВСЕ голоса и настоящие позиции. Позиция ноты
+    // считается от начала такта плюс курсор внутри такта:
+    //   - <note> двигает курсор на свою длительность;
+    //   - <note> с <chord/> звучит там же, где предыдущая, курсор не двигает;
+    //   - <backup> отводит курсор назад, <forward> вперёд;
+    //   - смена <divisions> внутри такта пересчитывает курсор и длину такта.
+    // Длительность берётся из <duration>: в MusicXML это уже настоящее время,
+    // триоль учтена в нём самом, а <time-modification> нужен только для вида.
+
+    // Разбор всех элементов с этим именем: атрибуты и содержимое по порядку.
+    // Самозакрытый элемент (<measure/>) даёт пустое содержимое, а не съедает
+    // следующие за ним такты
+    function blocks(xml, tag) {
+        var out = [];
+        var open = new RegExp('<' + tag + '(?=[\\s/>])([^>]*?)(/)?>', 'g');
+        var match;
+        while ((match = open.exec(xml))) {
+            var attrs = ' ' + (match[1] || '') + ' ';
+            if (match[2]) { out.push({ attrs: attrs, inner: '' }); continue; }
+            var close = xml.indexOf('</' + tag + '>', open.lastIndex);
+            if (close < 0) { out.push({ attrs: attrs, inner: xml.slice(open.lastIndex) }); break; }
+            out.push({ attrs: attrs, inner: xml.slice(open.lastIndex, close) });
+            open.lastIndex = close + tag.length + 3;
+        }
+        return out;
+    }
+
+    function attributeOf(attrs, name) {
+        var match = new RegExp(name + '=[\\x22\\x27]([^\\x22\\x27]*)[\\x22\\x27]').exec(attrs);
+        return match ? match[1] : '';
+    }
+
+    // На сколько партия звучит выше написанного: <chromatic> плюс <octave-change>
+    // октавами. Пишется один раз в начале, но бывает и в середине: тогда null
+    // значит "указания нет", а не "сдвиг ноль"
+    function transposeOf(xml) {
+        var block = /<transpose(?=[\s\/>])[\s\S]*?<\/transpose>/.exec(xml);
+        if (!block) return null;
+        var chromatic = /<chromatic>(-?\d+)<\/chromatic>/.exec(block[0]);
+        var octave = /<octave-change>(-?\d+)<\/octave-change>/.exec(block[0]);
+        return (chromatic ? Number(chromatic[1]) : 0) + (octave ? Number(octave[1]) * 12 : 0);
+    }
+
+    // Высота ноты в полутонах MIDI (ля первой октавы 69, как в playback.js).
+    // У барабанов вместо <pitch> стоит <unpitched> с display-step и display-octave
+    function midiOfNote(noteXml) {
+        var unpitched = /<unpitched(?=[\s\/>])/.test(noteXml);
+        var prefix = unpitched ? 'display-' : '';
+        var stepMatch = new RegExp('<' + prefix + 'step>([^<]*)</' + prefix + 'step>').exec(noteXml);
+        if (!stepMatch) return null;
+
+        var alterMatch = new RegExp('<' + prefix + 'alter>([^<]*)</' + prefix + 'alter>').exec(noteXml);
+        var octaveMatch = new RegExp('<' + prefix + 'octave>([^<]*)</' + prefix + 'octave>').exec(noteXml);
+        var alter = alterMatch ? Number(alterMatch[1]) || 0 : 0;
+        var accidental = alter > 0 ? '#' : (alter < 0 ? 'b' : '');
+        var name = stepMatch[1].trim() + accidental + (octaveMatch ? octaveMatch[1].trim() : '4');
+
+        // pitchNumber считает от до нулевой октавы (C4 = 48), а приложение и
+        // MIDI - от до первой (C4 = 60). Без этой поправки сопровождение
+        // звучало бы на октаву ниже сопровождения из MIDI
+        var midi = pitchNumber(name);
+        if (midi === null) return null;
+        return { midi: midi + 12, unpitched: unpitched };
+    }
+
+    // Порядок элементов внутри такта: ноты, отводы курсора и смена атрибутов
+    function measureTokens(body) {
+        var tokens = [];
+        var open = /<(note|backup|forward|attributes)(?=[\s\/>])([^>]*?)(\/)?>/g;
+        var match;
+        while ((match = open.exec(body))) {
+            var tag = match[1];
+            if (match[3]) { tokens.push({ tag: tag, inner: '' }); continue; }
+            var close = body.indexOf('</' + tag + '>', open.lastIndex);
+            if (close < 0) { tokens.push({ tag: tag, inner: body.slice(open.lastIndex) }); break; }
+            tokens.push({ tag: tag, inner: body.slice(open.lastIndex, close) });
+            open.lastIndex = close + tag.length + 3;
+        }
+        return tokens;
+    }
+
+    // Разбор одной партии целиком: все голоса, абсолютные позиции в долях,
+    // транспозиция партии и признак ударных
+    function parsePart(xml, partId) {
+        var text = String(xml || '');
+        var chosen = null;
+        var parts = blocks(text, 'part');
+        parts.forEach(function (part) {
+            if (chosen || !part) return;
+            if (!partId || attributeOf(part.attrs, 'id') === partId) chosen = part;
+        });
+
+        var names = {};
+        blocks(text, 'score-part').forEach(function (part) {
+            names[attributeOf(part.attrs, 'id')] = textOf(part.inner, 'part-name');
+        });
+
+        var body = chosen ? chosen.inner : (parts.length ? '' : text);
+        var measures = blocks(body, 'measure');
+        // Партия без тактов: считаем её содержимое одним тактом
+        if (!measures.length && body) measures = [{ inner: body }];
+
+        var transpose = transposeOf(body);
+        if (transpose === null) transpose = 0;
+        // Ударные узнаются по ключу перкуссии и по нотам без высоты
+        var percussion = /<sign>\s*percussion\s*<\/sign>/.test(body);
+        // Табулатурный стан - не второй инструмент, а та же музыка, записанная
+        // цифрами: у гитары и струнных он дублирует ноты (иногда на октаву ниже).
+        // Играть его вместе с нотным станом - значит слышать каждую ноту дважды
+        var tabStaves = {};
+        var clefRe = /<clef(?=[\s\/>])([^>]*?)(\/)?>([\s\S]*?)<\/clef>/g;
+        var clefMatch;
+        while ((clefMatch = clefRe.exec(body))) {
+            if (!/<sign>\s*TAB\s*<\/sign>/.test(clefMatch[3])) continue;
+            var clefNumber = attributeOf(' ' + clefMatch[1] + ' ', 'number');
+            tabStaves[clefNumber || '1'] = true;
+        }
+
+        var divisions = 1;
+        var measureBeats = 4;
+        var hasTime = false;
+        var measureStart = 0;
+        var measureLengths = [];
+        var notes = [];
+        var lastByVoice = {};
+        var tied = {};
+
+        measures.forEach(function (measure) {
+            var cursor = 0;
+            var maxCursor = 0;
+            var previousStart = null;
+            var collected = [];
+            var times = /<time(?=[\s\/>])[\s\S]*?<beats>(\d+)<\/beats>[\s\S]*?<beat-type>(\d+)<\/beat-type>[\s\S]*?<\/time>/.exec(measure.inner);
+            if (times) {
+                measureBeats = Number(times[1]) * 4 / Number(times[2]);
+                hasTime = true;
+            }
+
+            measureTokens(measure.inner).forEach(function (token) {
+                var inner = token.inner;
+
+                if (token.tag === 'attributes') {
+                    var divMatch = /<divisions>(\d+)<\/divisions>/.exec(inner);
+                    if (divMatch) {
+                        var next = Number(divMatch[1]);
+                        // Курсор и длина такта уже набраны в прежних делениях:
+                        // без пересчёта позиция после смены уедет
+                        if (next > 0 && next !== divisions) {
+                            cursor = cursor * next / divisions;
+                            maxCursor = maxCursor * next / divisions;
+                            divisions = next;
+                        }
+                    }
+                    var shift = transposeOf(inner);
+                    if (shift !== null) transpose = shift;
+                    if (/<sign>\s*percussion\s*<\/sign>/.test(inner)) percussion = true;
+                    return;
+                }
+
+                if (token.tag === 'backup' || token.tag === 'forward') {
+                    var move = Number(textOf(inner, 'duration')) || 0;
+                    cursor = token.tag === 'backup' ? Math.max(0, cursor - move) : cursor + move;
+                    if (cursor > maxCursor) maxCursor = cursor;
+                    previousStart = null;
+                    return;
+                }
+
+                // Ноты
+                var isChord = /<chord(?=[\s\/>])/.test(inner);
+                var isGrace = /<grace(?=[\s\/>])/.test(inner);
+                var duration = Number(textOf(inner, 'duration')) || 0;
+
+                var start = (isChord && previousStart !== null) ? previousStart : cursor;
+                if (!isChord) {
+                    previousStart = cursor;
+                    cursor += duration;
+                    if (cursor > maxCursor) maxCursor = cursor;
+                }
+                // Форшлаг времени не занимает и в сопровождении не играется
+                if (isGrace || /<rest(?=[\s\/>])/.test(inner)) return;
+                // Ноты табулатурного стана пропускаем: это тот же материал
+                if (tabStaves[textOf(inner, 'staff') || '1']) return;
+
+                var pitch = midiOfNote(inner);
+                if (!pitch) return;
+                if (pitch.unpitched) percussion = true;
+
+                collected.push({
+                    midi: pitch.unpitched ? pitch.midi : pitch.midi + transpose,
+                    start: start,
+                    beats: duration,
+                    voice: textOf(inner, 'voice') || '1',
+                    tied: /<tie[^>]*type=[\x22\x27]start[\x22\x27]/.test(inner)
+                });
+            });
+
+            // Длина такта - докуда он дошёл. Так это верно и для затакта,
+            // и для смены размера, и для такта с несколькими голосами
+            var length = maxCursor / divisions;
+            // Пустой такт не должен съедать время: берём размер
+            if (length <= 0) length = measureBeats;
+
+            // Такт, который не влезает в размер, встречается в чужих выгрузках:
+            // у Guitar Pro так выходят барабанные дроби, и там же теряются ноты.
+            // Такой такт сдвинул бы всё после себя (барабаны уезжали на 9 долей),
+            // поэтому укладываем его ноты в размер такта
+            var factor = 1;
+            if (hasTime && length > measureBeats + 1e-6) {
+                factor = measureBeats / length;
+                length = measureBeats;
+            }
+
+            collected.forEach(function (item) {
+                var startBeat = measureStart + item.start * factor / divisions;
+                var beats = item.beats * factor / divisions;
+
+                // Связанные ноты по разные стороны черты - это одна нота.
+                // Без склейки на стыке слышен лишний удар
+                var previous = lastByVoice[item.voice];
+                if (tied[item.voice] && previous && previous.midi === item.midi &&
+                    Math.abs(previous.startBeat + previous.beats - startBeat) < 1e-6) {
+                    previous.beats = startBeat + beats - previous.startBeat;
+                } else {
+                    var note = {
+                        midi: item.midi, startBeat: startBeat, beats: beats, voice: item.voice
+                    };
+                    notes.push(note);
+                    lastByVoice[item.voice] = note;
+                }
+                tied[item.voice] = item.tied;
+            });
+
+            measureLengths.push(length);
+            measureStart += length;
+        });
+
+        return {
+            ok: !!chosen,
+            id: chosen ? attributeOf(chosen.attrs, 'id') : '',
+            name: names[chosen ? attributeOf(chosen.attrs, 'id') : ''] || '',
+            percussion: percussion,
+            transpose: transpose,
+            divisions: divisions,
+            measureCount: measures.length,
+            measureLengths: measureLengths,
+            endBeat: measureStart,
+            notes: notes
+        };
+    }
+
     return {
         DIVISIONS: DIVISIONS,
         build: build,
         parse: parse,
+        parsePart: parsePart,
         listParts: listParts,
         beatsOf: beatsOf,
         pitchOf: pitchOf
