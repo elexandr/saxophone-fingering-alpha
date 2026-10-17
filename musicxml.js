@@ -524,33 +524,54 @@
         return element;
     }
 
+    // Структура файла: партии, их имена, программы и ударные инструменты.
+    // Считается один раз на файл: раньше каждый разбор заново проходил по
+    // всему тексту, а при открытии файла разборов бывает десяток - на трёх
+    // мегабайтах это заметные секунды
+    var fileCache = { text: null, value: null };
+
+    function fileOf(text) {
+        if (fileCache.text === text) return fileCache.value;
+
+        var index = { parts: [], names: {}, programs: {}, drums: {} };
+
+        blocks(text, 'part').forEach(function (part) {
+            index.parts.push({ id: attributeOf(part.attrs, 'id'), body: part.inner });
+        });
+        // Партия без разметки: считаем весь текст одной партией
+        if (!index.parts.length) index.parts.push({ id: '', body: text });
+
+        blocks(text, 'score-part').forEach(function (part) {
+            var id = attributeOf(part.attrs, 'id');
+            index.names[id] = textOf(part.inner, 'part-name');
+            var program = /<midi-program>(\d+)<\/midi-program>/.exec(part.inner);
+            if (program) index.programs[id] = Number(program[1]);
+            // Ударные: названия вроде "Kick (hit)" или "Crash medium (hit)"
+            var instruments = instrumentNames(part.inner);
+            Object.keys(instruments).forEach(function (key) {
+                var number = drumNumber(instruments[key]);
+                if (number !== null) index.drums[key] = number;
+            });
+        });
+
+        fileCache = { text: text, value: index };
+        return index;
+    }
+
     // Список партий файла: имя, программа, сколько нот. Нужен, чтобы предложить
     // выбор, когда в файле больше одного инструмента
     function listParts(xml) {
         var text = String(xml || '');
-        var names = {};
-        var nameRe = /<score-part\s+id=[\x22\x27]([^\x22\x27]*)[\x22\x27][\s\S]*?<part-name[^>]*>([\s\S]*?)<\/part-name>/g;
-        var nameMatch;
-        while ((nameMatch = nameRe.exec(text))) names[nameMatch[1]] = unescapeXml(nameMatch[2]).trim();
-
-        var programs = {};
-        var progRe = /<score-part\s+id=[\x22\x27]([^\x22\x27]*)[\x22\x27][\s\S]*?<midi-program>(\d+)<\/midi-program>/g;
-        var progMatch;
-        while ((progMatch = progRe.exec(text))) programs[progMatch[1]] = Number(progMatch[2]);
-
-        var list = [];
-        var partRe = /<part\s+id=[\x22\x27]([^\x22\x27]*)[\x22\x27][^>]*>([\s\S]*?)<\/part>/g;
-        var partMatch;
-        while ((partMatch = partRe.exec(text))) {
-            list.push({
-                id: partMatch[1],
-                name: names[partMatch[1]] || partMatch[1],
-                program: programs[partMatch[1]] || null,
-                noteCount: (partMatch[2].match(/<note(\s[^>]*)?>/g) || []).length,
-                polyphonic: /<backup>/.test(partMatch[2])
-            });
-        }
-        return list;
+        var index = fileOf(text);
+        return index.parts.map(function (part) {
+            return {
+                id: part.id,
+                name: index.names[part.id] || part.id,
+                program: index.programs[part.id] || null,
+                noteCount: (part.body.match(/<note(\s[^>]*)?>/g) || []).length,
+                polyphonic: /<backup>/.test(part.body)
+            };
+        });
     }
 
     // Разбор MusicXML. Терпимый: незнакомые элементы пропускаем, а не падаем -
@@ -576,21 +597,10 @@
 
         // Партии: в одном файле может быть несколько инструментов. Саксофон
         // пишется одной линией, а сопровождение - с <backup> и вторым голосом
-        var partRe = /<part\s+id=[\x22\x27]([^\x22\x27]*)[\x22\x27][^>]*>([\s\S]*?)<\/part>/g;
-        var parts = [];
-        var partMatch;
-        while ((partMatch = partRe.exec(text))) parts.push({ id: partMatch[1], body: partMatch[2] });
-        if (!parts.length) parts.push({ id: '', body: text });
-
-        var partNames = {};
-        var nameRe = /<score-part\s+id=[\x22\x27]([^\x22\x27]*)[\x22\x27][\s\S]*?<part-name[^>]*>([\s\S]*?)<\/part-name>/g;
-        var nameMatch;
-        while ((nameMatch = nameRe.exec(text))) partNames[nameMatch[1]] = unescapeXml(nameMatch[2]).trim();
-
-        var partPrograms = {};
-        var progRe = /<score-part\s+id=[\x22\x27]([^\x22\x27]*)[\x22\x27][\s\S]*?<midi-program>(\d+)<\/midi-program>/g;
-        var progMatch;
-        while ((progMatch = progRe.exec(text))) partPrograms[progMatch[1]] = Number(progMatch[2]);
+        var file = fileOf(text);
+        var parts = file.parts;
+        var partNames = file.names;
+        var partPrograms = file.programs;
 
         function partScore(part) {
             var name = String(partNames[part.id] || '').toLowerCase();
@@ -857,23 +867,60 @@
         return tokens;
     }
 
+    // Номер барабана General MIDI по названию инструмента из файла.
+    // У барабанов нет высоты, но по названию понятно, что это: бочка, малый,
+    // хай-хэт или тарелка. Нужен приложению, чтобы щелчки отличались: без него
+    // вся партия звучит ровным тиканьем, и ритм перестаёт читаться.
+    // Порядок проверок важен: "Snare (side stick)" должен стать ободом,
+    // "Pedal Hi-Hat" - педалью, а не обычным хай-хэтом
+    var DRUM_NUMBERS = [
+        [/kick|bass drum|бочк/i, 36],
+        [/side stick|rim ?shot|обод/i, 37],
+        [/pedal hi-?hat|pedal hat/i, 44],
+        [/open hi-?hat|open hat|hi-?hat \(open\)/i, 46],
+        [/hi-?hat|hihat|хэт|хет/i, 42],
+        [/snare|малы/i, 38],
+        [/ride/i, 51],
+        [/crash|splash|china|тарел/i, 49],
+        [/high tom|high floor tom/i, 48],
+        [/mid tom|средн.*том/i, 47],
+        [/low tom|very low tom|floor tom/i, 45]
+    ];
+
+    function drumNumber(name) {
+        var text = String(name || '');
+        for (var i = 0; i < DRUM_NUMBERS.length; i++) {
+            if (DRUM_NUMBERS[i][0].test(text)) return DRUM_NUMBERS[i][1];
+        }
+        return null;
+    }
+
+    // Названия инструментов партии по их номерам: <score-instrument id="P9-I8">
+    function instrumentNames(partBody) {
+        var names = {};
+        var re = /<score-instrument(?=[\s\/>])([^>]*?)(\/)?>([\s\S]*?)<\/score-instrument>/g;
+        var match;
+        while ((match = re.exec(partBody))) {
+            var id = attributeOf(' ' + match[1] + ' ', 'id');
+            if (id) names[id] = textOf(match[3], 'instrument-name');
+        }
+        return names;
+    }
+
     // Разбор одной партии целиком: все голоса, абсолютные позиции в долях,
     // транспозиция партии и признак ударных
     function parsePart(xml, partId) {
         var text = String(xml || '');
+        var file = fileOf(text);
         var chosen = null;
-        var parts = blocks(text, 'part');
-        parts.forEach(function (part) {
-            if (chosen || !part) return;
-            if (!partId || attributeOf(part.attrs, 'id') === partId) chosen = part;
+        file.parts.forEach(function (part) {
+            if (chosen) return;
+            if (!partId || part.id === partId) chosen = part;
         });
+        var names = file.names;
+        var drums = file.drums;
 
-        var names = {};
-        blocks(text, 'score-part').forEach(function (part) {
-            names[attributeOf(part.attrs, 'id')] = textOf(part.inner, 'part-name');
-        });
-
-        var body = chosen ? chosen.inner : (parts.length ? '' : text);
+        var body = chosen ? chosen.body : '';
         var measures = blocks(body, 'measure');
         // Партия без тактов: считаем её содержимое одним тактом
         if (!measures.length && body) measures = [{ inner: body }];
@@ -961,10 +1008,21 @@
 
                 var pitch = midiOfNote(inner);
                 if (!pitch) return;
-                if (pitch.unpitched) percussion = true;
+
+                // Ударные: у ноты есть номер инструмента, и по его названию
+                // видно, бочка это или хай-хэт. Иначе щелчки неразличимы
+                var midi = pitch.midi;
+                if (pitch.unpitched) {
+                    percussion = true;
+                    var instrumentMatch = /<instrument(?=[\s\/>])([^>]*?)(\/)?>/.exec(inner);
+                    var instrumentId = instrumentMatch ? attributeOf(' ' + instrumentMatch[1] + ' ', 'id') : '';
+                    if (instrumentId && drums[instrumentId]) midi = drums[instrumentId];
+                } else {
+                    midi = pitch.midi + transpose;
+                }
 
                 collected.push({
-                    midi: pitch.unpitched ? pitch.midi : pitch.midi + transpose,
+                    midi: midi,
                     start: start,
                     beats: duration,
                     voice: textOf(inner, 'voice') || '1',

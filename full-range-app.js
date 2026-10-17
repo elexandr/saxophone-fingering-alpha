@@ -1142,10 +1142,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         element.duration = duration;
         this.refreshElement(element);
         // Длительность влияет на границы тактов, поэтому черты пересчитываем
-        this.relayout();
-        this.updateStatus(t(element.dotted ? 'status.durationSetDotted' : 'status.durationSet',
-            { name: this.durationLabel(duration) }));
-        this.scheduleAutosave();
+        if (!options.silent) {
+            this.relayout();
+            this.updateStatus(t(element.dotted ? 'status.durationSetDotted' : 'status.durationSet',
+                { name: this.durationLabel(duration) }));
+            this.scheduleAutosave();
+        }
     }
     
     setElementDotted(element, dotted, options = {}) {
@@ -1156,9 +1158,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         element.dotted = count;
         this.refreshElement(element);
         // Точка меняет длительность, а значит и границы тактов
-        this.relayout();
-        this.updateStatus(t('status.dotsSet', { count: count }));
-        this.scheduleAutosave();
+        if (!options.silent) {
+            this.relayout();
+            this.updateStatus(t('status.dotsSet', { count: count }));
+            this.scheduleAutosave();
+        }
     }
     
     // Перерисовка знака и окошка длительности без изменения положения элемента
@@ -4037,10 +4041,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         }
         
         // Инструменты в MIDI разделяются каналами. Если выбран один, его ноты
-        // идут на стан, а остальные - в аккомпанемент. Барабаны не берём
-        if (onlyChannel === undefined || onlyChannel === null) {
-            this.accompaniment = [];
-        } else {
+        // идут на стан, а остальные - в аккомпанемент.
+        // Считаем сопровождение здесь, а применяем ПОСЛЕ разметки стана:
+        // разметка очищает сопровождение прежнего файла, и раньше только что
+        // собранное сопровождение затиралось тут же - из MIDI оно пропало
+        let accompaniment = [];
+        if (onlyChannel !== undefined && onlyChannel !== null) {
             const allTracks = parsed.tracks || [];
             // Аккомпанемент - ноты всех дорожек, кроме выбранной
             let others = [];
@@ -4051,11 +4057,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                     others.push(Object.assign({ trackIndex: index, trackName: trackName }, note));
                 });
             });
-            this.accompaniment = this.buildMidiAccompaniment(
+            accompaniment = this.buildMidiAccompaniment(
                 { notes: others, ppq: parsed.ppq || parsed.division },
                 -1
             );
-            this.renderAccompanimentPanel();
             parsed.notes = (allTracks[onlyChannel] && allTracks[onlyChannel].notes) || parsed.notes;
         }
         
@@ -4083,6 +4088,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             }
         });
         
+        // Сопровождение ставим только теперь: разметка стана его очищает
+        this.accompaniment = accompaniment;
+        this.renderAccompanimentPanel();
+
         this.applyMidiSettings(converted);
         this.updateStatus(this.midiStatusText(converted));
         
@@ -4992,24 +5001,28 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.clearAllNotes();
 
         let skipped = 0;
+        // Массовая загрузка: тихий режим глушит перерисовку и автосохранение
+        // на каждом элементе. Иначе на 400 нот приходится 400 полных пересчётов
+        // стана, время растёт квадратично, и файл открывается секундами
+        const silent = { silent: true, history: false };
         parsed.elements.forEach(item => {
-            let id;
             if (item.isRest) {
-                id = this.addRest(null, { silent: true });
+                this.addRest(null, silent);
             } else {
                 const info = this.getNoteInfoByName(item.noteName);
                 if (!info) { skipped++; return; }
-                id = this.addNote(info.positionId, item.noteName, null, { silent: true });
+                this.addNote(info.positionId, item.noteName, null, silent);
             }
 
-            const element = this.notes.find(n => n.id === id);
+            // Элемент всегда добавляется в конец: так дешевле, чем искать по id
+            const element = this.notes[this.notes.length - 1];
             if (!element) return;
 
             // Точку ставим ВСЕГДА, даже нулевую. Иначе нота наследует точку
             // от предыдущего элемента (addNote и addRest её перенимают),
             // и на стане появляются точки там, где их в файле нет
-            if (item.duration) this.setElementDuration(element, item.duration, { history: false });
-            this.setElementDotted(element, item.dotted || 0, { history: false });
+            if (item.duration) this.setElementDuration(element, item.duration, silent);
+            this.setElementDotted(element, item.dotted || 0, silent);
             if (item.currentVariant) element.currentVariant = item.currentVariant;
 
             // Поля лиг и триолей: запись их уже умеет, интерфейс появится позже
@@ -5018,6 +5031,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             if (item.slurStart) element.slurStart = true;
             if (item.slurEnd) element.slurEnd = true;
         });
+
+        // Одна перерисовка на весь файл и одна запись автосохранения
+        this.relayout();
+        this.scheduleAutosave();
 
         this.loading = false;
 
