@@ -408,10 +408,20 @@
         // Общая громкость сопровождения и отдельная на каждую дорожку.
         // Это узлы усиления: сколько бы дорожек ни было, нагрузка копеечная
         var accMasterGain = ctx.createGain();
-        accMasterGain.gain.value = options.accompanimentVolume === undefined
+        this.accompanimentVolume = options.accompanimentVolume === undefined
             ? 1 : Number(options.accompanimentVolume);
+        this.accompanimentMuted = !!options.muteAccompaniment;
+        accMasterGain.gain.value = this.accompanimentMuted ? 0 : this.accompanimentVolume;
         accMasterGain.connect(this.master);
         this.accompanimentBus = { master: accMasterGain, tracks: {} };
+
+        // Основная линия тоже через свой узел: тогда галочку «звук основной»
+        // можно переключать во время игры. Раньше при снятой галочке ноты
+        // не ставились вовсе, и включить её в середине пьесы было нечем
+        this.mainMuted = !!options.muteMain;
+        this.melodyBus = ctx.createGain();
+        this.melodyBus.gain.value = this.mainMuted ? 0 : 1;
+        this.melodyBus.connect(this.master);
 
         function trackBus(trackIndex, trackName) {
             var key = String(trackIndex === undefined || trackIndex === null ? trackName || '0' : trackIndex);
@@ -420,10 +430,15 @@
 
             var settings = (options.accompanimentTracks || {})[key] || {};
             var node = ctx.createGain();
-            node.gain.value = settings.volume === undefined ? 1 : Number(settings.volume);
+            var bus = {
+                key: key,
+                name: trackName || key,
+                gain: node,
+                volume: settings.volume === undefined ? 1 : Number(settings.volume),
+                muted: !!settings.muted
+            };
+            bus.gain.gain.value = bus.muted ? 0 : bus.volume;
             node.connect(accMasterGain);
-
-            var bus = { key: key, name: trackName || key, gain: node, muted: !!settings.muted };
             self.accompanimentBus.tracks[key] = bus;
             return bus;
         }
@@ -432,6 +447,15 @@
             // После остановки не досылаем: иначе сопровождение звучит ещё
             // полсекунды-секунду после конца, «догоняя» остановленную игру
             if (!self.playing) return;
+
+            // Галочка «звук сопровождения» глушит громкость, а не пропускает
+            // ноты. Пропущенные ноты терялись навсегда: снял галочку - тишина,
+            // поставил обратно - и включать уже нечего
+            if (typeof document !== 'undefined') {
+                var checkbox = document.getElementById('sound-accompaniment');
+                if (checkbox) self.setAccompanimentMuted(!checkbox.checked);
+            }
+
             var horizon = ctx.currentTime + 2.0;
             while (accIndex < accNotes.length) {
                 var note = accNotes[accIndex];
@@ -445,17 +469,11 @@
                 if (startAt > horizon) break;
                 accIndex++;
 
-                // Галочку проверяем на каждом шаге: тогда её можно переключать
-                // прямо во время игры
-                var checkbox = typeof document !== 'undefined'
-                    ? document.getElementById('sound-accompaniment')
-                    : null;
-                if (checkbox && !checkbox.checked) continue;
-
                 // Ударные: своего барабанного звука нет, играем щелчками.
-                // Бочка и малый - с ударением, тарелки - коротко
+                // Бочка и малый - с ударением, тарелки - коротко.
+                // Заглушённая дорожка не пропускается, а идёт с нулевой
+                // громкостью: иначе снятая и возвращённая галочка теряла ноты
                 var bus = trackBus(note.trackIndex, note.trackName);
-                if (bus.muted) continue;
 
                 if (note.drum) {
                     var kind = Number(note.midi) || 0;
@@ -478,7 +496,10 @@
             }
         }
 
-        if (accNotes.length && !options.muteAccompaniment) {
+        // Сопровождение ставим всегда, а слышно его или нет - решает громкость.
+        // Раньше при снятой галочке планировщик не запускался совсем, и
+        // поставленная обратно галочка ничего не включала
+        if (accNotes.length) {
             scheduleAccompanimentPortion();
         }
 
@@ -488,12 +509,12 @@
 
             // Основную линию можно выключить: подсветка при этом работает,
             // потому что она идёт по времени, а не по звуку
-            if (!item.skip && !element.isRest && !options.muteMain) {
+            if (!item.skip && !element.isRest) {
                 var frequency = noteToFrequency(element.noteName, self.transpose);
                 if (frequency) {
                     // Под лигой нота звучит всю длительность, без разрыва
                     var joined = slurJoined[index] || (slurJoined[index - 1] && !element.slurEnd && index > 0);
-                    self.scheduleNote(frequency, startAt, item.seconds * (joined ? 1 : 0.92));
+                    self.scheduleNote(frequency, startAt, item.seconds * (joined ? 1 : 0.92), self.melodyBus);
                 }
             }
 
@@ -566,7 +587,12 @@
 
         var tempo = this.lastPlay.tempo;
         var handlers = this.lastPlay.handlers;
-        var options = this.lastPlay.options;
+        // Галочки звука могли переключить во время игры: переносим их текущее
+        // состояние, иначе перепланирование вернуло бы старое
+        var options = Object.assign({}, this.lastPlay.options, {
+            muteMain: !!this.mainMuted,
+            muteAccompaniment: !!this.accompanimentMuted
+        });
         this.play(rest, tempo, handlers, options);
 
         return true;
@@ -574,22 +600,50 @@
 
     // Громкость сопровождения целиком и по дорожкам. Действует сразу,
     // в том числе во время игры: меняются значения узлов, ноты не трогаются
+    MelodyPlayer.prototype.applyAccompanimentGain = function () {
+        if (!this.accompanimentBus || !this.accompanimentBus.master) return;
+        var volume = this.accompanimentVolume === undefined ? 1 : Number(this.accompanimentVolume) || 0;
+        this.accompanimentBus.master.gain.value = this.accompanimentMuted ? 0 : volume;
+    };
+
     MelodyPlayer.prototype.setAccompanimentVolume = function (value) {
-        if (this.accompanimentBus && this.accompanimentBus.master) {
-            this.accompanimentBus.master.gain.value = Math.max(0, Math.min(1, Number(value) || 0));
-        }
+        this.accompanimentVolume = Math.max(0, Math.min(1, Number(value) || 0));
+        this.applyAccompanimentGain();
+    };
+
+    // Галочка «звук сопровождения». Именно громкость, а не пропуск нот:
+    // тогда включить обратно можно в любой момент и ничего не теряется
+    MelodyPlayer.prototype.setAccompanimentMuted = function (muted) {
+        this.accompanimentMuted = !!muted;
+        this.applyAccompanimentGain();
+    };
+
+    // Галочка «звук основной линии»
+    MelodyPlayer.prototype.setMainMuted = function (muted) {
+        this.mainMuted = !!muted;
+        if (this.melodyBus) this.melodyBus.gain.value = this.mainMuted ? 0 : 1;
+    };
+
+    MelodyPlayer.prototype.applyTrackGain = function (bus) {
+        if (!bus || !bus.gain) return;
+        var volume = bus.volume === undefined ? 1 : Number(bus.volume) || 0;
+        bus.gain.gain.value = bus.muted ? 0 : volume;
     };
 
     MelodyPlayer.prototype.setTrackVolume = function (trackKey, value) {
         if (!this.accompanimentBus) return;
         var bus = this.accompanimentBus.tracks[String(trackKey)];
-        if (bus) bus.gain.gain.value = Math.max(0, Math.min(1, Number(value) || 0));
+        if (!bus) return;
+        bus.volume = Math.max(0, Math.min(1, Number(value) || 0));
+        this.applyTrackGain(bus);
     };
 
     MelodyPlayer.prototype.setTrackMuted = function (trackKey, muted) {
         if (!this.accompanimentBus) return;
         var bus = this.accompanimentBus.tracks[String(trackKey)];
-        if (bus) bus.muted = !!muted;
+        if (!bus) return;
+        bus.muted = !!muted;
+        this.applyTrackGain(bus);
     };
 
     MelodyPlayer.prototype.stop = function () {
@@ -608,6 +662,7 @@
         });
         this.voices = [];
         this.accompanimentBus = null;
+        this.melodyBus = null;
         this.playing = false;
     };
 

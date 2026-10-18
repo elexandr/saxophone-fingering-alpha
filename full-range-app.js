@@ -309,6 +309,26 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         
 });
 
+        // Галочки звука действуют сразу, в том числе во время игры: они меняют
+        // громкость готовых узлов, а не перепланируют ноты. Раньше «звук
+        // сопровождения» можно было снять, но не вернуть - ноты при снятии
+        // пропускались навсегда
+        const soundMain = document.getElementById('sound-main');
+        if (soundMain) {
+            soundMain.addEventListener('change', (e) => {
+                if (staffManager.melodyPlayer) staffManager.melodyPlayer.setMainMuted(!e.target.checked);
+            });
+        }
+
+        const soundAccompaniment = document.getElementById('sound-accompaniment');
+        if (soundAccompaniment) {
+            soundAccompaniment.addEventListener('change', (e) => {
+                if (staffManager.melodyPlayer) {
+                    staffManager.melodyPlayer.setAccompanimentMuted(!e.target.checked);
+                }
+            });
+        }
+
         }
         
         this.bindLanguageSwitch();
@@ -4501,15 +4521,17 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     }
 
     syncPresetHighlight() {
-        // Общая громкость сопровождения и построение панели дорожек
+        // Общая громкость сопровождения и построение панели дорожек.
+        // Единичный обработчик: при повторной инициализации addEventListener
+        // накапливался, и одно движение ползунка применялось несколько раз
         const accompanimentVolume = document.getElementById('accompaniment-volume');
         if (accompanimentVolume) {
-            accompanimentVolume.addEventListener('input', () => {
+            accompanimentVolume.oninput = () => {
                 staffManager.accompanimentVolume = Number(accompanimentVolume.value) / 100;
                 if (staffManager.melodyPlayer) {
                     staffManager.melodyPlayer.setAccompanimentVolume(staffManager.accompanimentVolume);
                 }
-            });
+            };
         }
         // Сдвиг только сопровождения: общий сдвиг двигает и его тоже
         const accShiftInput = document.getElementById('accompaniment-shift');
