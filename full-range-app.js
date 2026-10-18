@@ -3956,41 +3956,79 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     
     // Загрузка мелодии из MIDI-файла: разбор, преобразование и перенос на стан.
     // Возвращает сведения о переносе, чтобы их можно было проверить.
-    // Дорожки файла: у каждой своё имя и свой инструмент, как в Guitar Pro
+    // Инструменты в MIDI разделяются КАНАЛАМИ, а не дорожками. В формате 1
+    // у каждой дорожки свой канал, и это одно и то же, но в формате 0 все
+    // инструменты лежат в одной дорожке - и раньше весь файл считался одним
+    // инструментом, поэтому выбора дорожки не появлялось вовсе
     midiChannels(parsed) {
         const tracks = parsed.tracks || [];
-        return tracks.map((track, index) => ({ track: track, index: index }))
-            .filter(item => item.track.notes && item.track.notes.length)
-            .map(item => {
-                const track = item.track;
-                let name = track.name || '';
-
-                const programKeys = Object.keys(track.programs || {});
-                const program = programKeys.length ? track.programs[programKeys[0]] : null;
-                let instrument = '';
-                if (typeof program === 'number' && Midi.instrumentName) {
-                    instrument = Midi.instrumentName(program);
-                }
-
-                // Десятый канал в MIDI - ударные
-                const isDrums = !!(track.notes[0] && Number(track.notes[0].channel) === 9);
-                if (isDrums) {
-                    name = name ? (name + ' · ' + t('midi.channelDrums')) : t('midi.channelDrums');
-                } else if (instrument) {
-                    name = name ? (name + ' · ' + instrument) : instrument;
-                }
-                if (!name) name = t('midi.track', { n: item.index + 1 });
-
-                return {
-                    id: 'tr' + item.index,
-                    name: name,
-                    noteCount: track.notes.length,
-                    polyphonic: false,
-                    trackIndex: item.index
-                };
+        // Общий список нот; если разбор его не отдал, собираем из дорожек
+        let notes = parsed.notes;
+        if (!notes || !notes.length) {
+            notes = [];
+            tracks.forEach(track => {
+                (track.notes || []).forEach(note => notes.push(note));
             });
+        }
+
+        const byChannel = new Map();
+        notes.forEach(note => {
+            const channel = Number(note.channel) || 0;
+            if (!byChannel.has(channel)) byChannel.set(channel, []);
+            byChannel.get(channel).push(note);
+        });
+
+        // Имя дорожки годится, только если в ней один канал: иначе в формате 0
+        // все инструменты получили бы одно название
+        const namesByChannel = new Map();
+        tracks.forEach(track => {
+            const trackNotes = track.notes || [];
+            if (!trackNotes.length) return;
+            const channels = new Set(trackNotes.map(note => Number(note.channel) || 0));
+            if (channels.size !== 1) return;
+            const channel = Array.from(channels)[0];
+            if (!namesByChannel.has(channel)) namesByChannel.set(channel, track.name || '');
+        });
+
+        const programs = {};
+        tracks.forEach(track => Object.assign(programs, track.programs || {}));
+
+        var list = Array.from(byChannel.keys()).sort((a, b) => a - b).map(channel => {
+            // Десятый канал в MIDI - ударные
+            const isDrums = channel === 9;
+            let name = namesByChannel.get(channel) || '';
+
+            if (isDrums) {
+                name = name ? (name + ' · ' + t('midi.channelDrums')) : t('midi.channelDrums');
+            } else {
+                let instrument = '';
+                if (typeof programs[channel] === 'number' && Midi.instrumentName) {
+                    instrument = Midi.instrumentName(programs[channel]);
+                }
+                if (instrument) name = name ? (name + ' · ' + instrument) : instrument;
+            }
+            if (!name) name = t('midi.track', { n: channel + 1 });
+
+            return {
+                id: 'ch' + channel,
+                name: name,
+                noteCount: byChannel.get(channel).length,
+                polyphonic: false,
+                channel: channel
+            };
+        });
+
+        // Две дорожки с одной программой назывались бы одинаково: добавляем
+        // номер канала, иначе в списке не выбрать
+        var sameName = {};
+        list.forEach(item => { sameName[item.name] = (sameName[item.name] || 0) + 1; });
+        list.forEach(item => {
+            if (sameName[item.name] > 1) item.name += ' · ' + t('midi.channel', { n: item.channel + 1 });
+        });
+
+        return list;
     }
-    // Аккомпанемент из MIDI: все каналы, кроме выбранного и барабанов
+    // Аккомпанемент из MIDI: все каналы, кроме выбранного
     buildMidiAccompaniment(parsed, chosenChannel) {
         const ppq = parsed.ppq || parsed.division || 480;
         if (!parsed.notes || !ppq) return [];
@@ -4013,7 +4051,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         return notes;
     }
 
-    // Открытие MIDI: если каналов несколько, спрашиваем, какой инструмент грузить
+    // Открытие MIDI: если инструментов несколько, спрашиваем, какой грузить
     openMidiBuffer(buffer) {
         const parsed = Midi.parse(buffer);
         if (!parsed || !parsed.ok || !parsed.notes || !parsed.notes.length) {
@@ -4024,8 +4062,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         if (channels.length <= 1) return Promise.resolve(this.applyMidiBuffer(buffer));
 
         return this.choosePart(channels).then(chosen => {
-            const index = Number(String(chosen).replace('tr', ''));
-            return this.applyMidiBuffer(buffer, index);
+            const channel = Number(String(chosen).replace('ch', ''));
+            return this.applyMidiBuffer(buffer, channel);
         });
     }
 
@@ -4047,21 +4085,29 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // собранное сопровождение затиралось тут же - из MIDI оно пропало
         let accompaniment = [];
         if (onlyChannel !== undefined && onlyChannel !== null) {
-            const allTracks = parsed.tracks || [];
-            // Аккомпанемент - ноты всех дорожек, кроме выбранной
-            let others = [];
-            allTracks.forEach((track, index) => {
-                if (index === onlyChannel) return;
-                const trackName = track.name || t('midi.track', { n: index + 1 });
-                (track.notes || []).forEach(note => {
-                    others.push(Object.assign({ trackIndex: index, trackName: trackName }, note));
+            const allNotes = parsed.notes || [];
+            const names = {};
+            this.midiChannels(parsed).forEach(item => { names[item.channel] = item.name; });
+
+            const ofChannel = channel => (Number(channel) || 0);
+
+            // Аккомпанемент - ноты всех каналов, кроме выбранного. Имя канала
+            // уходит в панель сопровождения: по нему видно, что это за дорожка
+            const others = allNotes
+                .filter(note => ofChannel(note.channel) !== onlyChannel)
+                .map(note => {
+                    const channel = ofChannel(note.channel);
+                    return Object.assign({
+                        trackIndex: channel,
+                        trackName: names[channel] || t('midi.track', { n: channel + 1 })
+                    }, note);
                 });
-            });
+
             accompaniment = this.buildMidiAccompaniment(
                 { notes: others, ppq: parsed.ppq || parsed.division },
-                -1
+                onlyChannel
             );
-            parsed.notes = (allTracks[onlyChannel] && allTracks[onlyChannel].notes) || parsed.notes;
+            parsed.notes = allNotes.filter(note => ofChannel(note.channel) === onlyChannel);
         }
         
         const converted = Midi.toElements(parsed);
