@@ -421,53 +421,7 @@
 
     // Подбор слагаемых из разрешённых длительностей.
     // units - длительность в шагах сетки.
-    function splitUnits(units) {
-        // Ничего короче целой ноты не дробим. Дробление нужно только для
-        // длиннее целой, а для остального достаточно округлить до ближайшей
-        // записываемой длительности. Иначе сумма кусков выходит больше
-        // исходной, и появляются лишние ноты со сдвигом по времени
-        if (units <= 480) {
-            return [units];
-        }
-        if (typeof isPlainUnits === 'function' && (isPlainUnits(units) || tupletForUnits(units))) {
-            return [units];
-        }
-        var allowedUnits = ALLOWED.map(function (item) {
-            return Math.round(item.beats / GRID);
-        });
-        var parts = [];
-        var left = units;
 
-        while (left > 0) {
-            var pick = null;
-            for (var i = 0; i < allowedUnits.length; i++) {
-                var candidate = allowedUnits[i];
-                if (candidate <= left && (left - candidate === 0 || left - candidate >= 2)) {
-                    pick = candidate;
-                    break;
-                }
-            }
-            if (pick === null) pick = left >= 3 ? 3 : 2;
-            parts.push(pick);
-            left -= pick;
-        }
-
-        return parts;
-    }
-
-    function durationForUnits(units) {
-        var beats = units * GRID;
-        var best = ALLOWED[ALLOWED.length - 1];
-        var bestDiff = Infinity;
-        ALLOWED.forEach(function (item) {
-            var diff = Math.abs(item.beats - beats);
-            if (diff < bestDiff) {
-                bestDiff = diff;
-                best = item;
-            }
-        });
-        return { duration: best.duration, dotted: best.dotted };
-    }
 
     // Саксофон одноголосый, а MIDI бывает многоголосым. Считаем, сколько нот
     // звучит одновременно: если больше одной, файл придётся упрощать,

@@ -9,7 +9,7 @@
     <meta name="referrer" content="no-referrer">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <title data-i18n="app.docTitle">Saxophone Fingering Assistant</title>
-    <link rel="stylesheet" href="simple-styles.css?v=1.9.0-a64">
+    <link rel="stylesheet" href="simple-styles.css?v=1.9.0-a65">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
@@ -98,9 +98,9 @@
                         </label>
 
                         <details id="accompaniment-panel" class="accompaniment-panel" hidden>
-                            <summary>Громкость сопровождения</summary>
+                            <summary data-i18n="panel.accompaniment">Громкость сопровождения</summary>
                             <div class="accompaniment-master">
-                                <span>Общая</span>
+                                <span data-i18n="panel.accompanimentMaster">Общая</span>
                                 <input type="range" id="accompaniment-volume" min="0" max="100" value="100">
                             </div>
                             <div id="accompaniment-tracks"></div>
@@ -289,12 +289,12 @@
                         <p class="instrument-example" id="instrument-example"></p>
 
                         <div class="setting-group">
-                            <label for="accompaniment-shift"><span>Сдвиг сопровождения</span></label>
+                            <label for="accompaniment-shift" data-i18n-title="panel.accompanimentShift.hint"><span data-i18n="panel.accompanimentShift">Сдвиг сопровождения</span></label>
                             <div class="control-group number-row">
                                 <button type="button" id="btn-acc-shift-minus" class="btn-step">&minus;</button>
                                 <input type="number" id="accompaniment-shift" class="number-input" min="-24" max="24" step="1"
                                        value="0" name="accompaniment-shift" autocomplete="off" inputmode="numeric"
-                                       title="Сдвиг только сопровождения, в полутонах">
+                                       >
                                 <button type="button" id="btn-acc-shift-plus" class="btn-step">+</button>
                             </div>
                         </div>
@@ -376,7 +376,7 @@
                 <span id="status-message" data-i18n="status.ready">Готов к работе. Кликните на маркер позиции, чтобы добавить ноту.</span>
                 <span id="cache-status" class="cache-status"></span>
                 <span class="app-file" id="current-file" hidden></span>
-            <span class="app-version">v1.9.0-a64</span>
+            <span class="app-version">v1.9.0-a65</span>
             </div>
         </footer>
     </div>
@@ -539,13 +539,13 @@
     </div>
 
     <!-- Скрипты -->
-    <script src="i18n.js?v=1.9.0-a64"></script>
-    <script src="note-symbols.js?v=1.9.0-a64"></script>
-    <script src="playback.js?v=1.9.0-a64"></script>
-    <script src="image-cache.js?v=1.9.0-a64"></script>
-    <script src="midi.js?v=1.9.0-a64"></script>
-    <script src="musicxml.js?v=1.9.0-a64"></script>
-    <script src="full-range-app.js?v=1.9.0-a64"></script>
+    <script src="i18n.js?v=1.9.0-a65"></script>
+    <script src="note-symbols.js?v=1.9.0-a65"></script>
+    <script src="playback.js?v=1.9.0-a65"></script>
+    <script src="image-cache.js?v=1.9.0-a65"></script>
+    <script src="midi.js?v=1.9.0-a65"></script>
+    <script src="musicxml.js?v=1.9.0-a65"></script>
+    <script src="full-range-app.js?v=1.9.0-a65"></script>
     <!-- Yandex.Metrika counter -->
 <script type="text/javascript">
     (function(m,e,t,r,i,k,a){

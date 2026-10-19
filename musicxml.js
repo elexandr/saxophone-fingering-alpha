@@ -541,68 +541,6 @@
         return best;
     }
 
-    function parseNote(noteXml, divisions) {
-        var isRest = /<rest\s*\/>/.test(noteXml);
-        // <chord/> означает, что это ещё один тон того же аккорда.
-        // Приложение одноголосное, поэтому дополнительный тон пропускаем:
-        // остаётся первый, то есть верхний - как и при импорте MIDI
-        var isChordTone = /<chord\s*\/>/.test(noteXml);
-        var step = textOf(noteXml, 'step');
-        var alter = textOf(noteXml, 'alter');
-        var octave = textOf(noteXml, 'octave');
-
-        var noteName = null;
-        if (!isRest && step) {
-            var accidental = '';
-            if (Number(alter) > 0) accidental = '#';
-            if (Number(alter) < 0) accidental = 'b';
-            noteName = step + accidental + octave;
-        }
-
-        var timing = parseTiming(noteXml);
-
-        // Точное время берём из <duration>, но только если в файле вообще
-        // объявлены <divisions> и только для нот без триоли: триоль записана
-        // явно, и пересчитывать её по <duration> значит потерять скобку
-        var trueBeats = timing.tuplet ? null : durationBeats(noteXml, divisions);
-
-        // Точное время важнее написанного: иначе такт не сходится и мелодия
-        // уезжает относительно сетки
-        var exact = fitTiming(trueBeats, timing);
-        if (exact) {
-            timing.duration = exact.duration;
-            timing.dotted = exact.dotted;
-            timing.tuplet = exact.tuplet;
-        }
-
-        var variant = /sax-fingering-variant=(\d+)/.exec(noteXml);
-
-        var element = {
-            isRest: isRest,
-            chordTone: isChordTone,
-            noteName: noteName,
-            displayName: noteName,
-            duration: timing.duration,
-            dotted: timing.dotted,
-            currentVariant: variant ? Number(variant[1]) : 1
-        };
-
-        if (timing.tuplet) element.tuplet = timing.tuplet;
-
-        // Записываемая длительность не всегда может выразить точное время:
-        // в чистке New York у 51 ноты из 322 это 0,833 доли - такую длительность
-        // одной нотой не записать. Тогда точное время храним рядом и играем по
-        // нему, а на стане остаётся ближайший записываемый знак
-        if (trueBeats > 0 && Math.abs(beatsOf(element) - trueBeats) > 0.01) {
-            element.beats = trueBeats;
-        }
-
-        if (/<tie type="start"/.test(noteXml)) element.tiedToNext = true;
-        if (/<slur type="start"/.test(noteXml)) element.slurStart = true;
-        if (/<slur type="stop"/.test(noteXml)) element.slurEnd = true;
-
-        return element;
-    }
 
     // Структура файла: партии, их имена, программы и ударные инструменты.
     // Считается один раз на файл: раньше каждый разбор заново проходил по
@@ -846,6 +784,8 @@
             skippedChords: skippedChords,
             skippedGrace: skippedGrace,
             skippedVoices: droppedVoices,
+            // Длина партии в долях: видно, совпадает ли стан с пьесой
+            endBeat: walked.endBeat,
             settings: settings,
             meta: meta
         };

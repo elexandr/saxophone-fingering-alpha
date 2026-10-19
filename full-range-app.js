@@ -2573,11 +2573,6 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 card.classList.add('selected');
             }
         });
-        
-        // Обновляем информацию о выделенном элементе
-        this.setFingeringInfo(note.isRest
-            ? t('rest.inRow', { name: this.durationLabel(note.duration) })
-            : note.displayName);
     }
     
     // Переключение варианта аппликатуры
@@ -2920,12 +2915,6 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         });
     }
     
-    // Сведения о выбранной аппликатуре в шапке (может отсутствовать в разметке)
-    setFingeringInfo(text) {
-        const node = document.getElementById('current-fingering-info');
-        if (node) node.textContent = text;
-    }
-    
     showNoFingeringsPlaceholder() {
         const container = this.fingeringContainers[0];
         if (!container) return;
@@ -2949,7 +2938,6 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         
         const countNode = document.getElementById('fingering-count');
         if (countNode) countNode.textContent = t('cards.none');
-        this.setFingeringInfo(t('staff.noSelection'));
     }
     
     showNoFingeringPlaceholder(noteName) {
@@ -2975,7 +2963,6 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         
         const countNode = document.getElementById('fingering-count');
         if (countNode) countNode.textContent = t('cards.none');
-        this.setFingeringInfo(t('cards.noFingeringFor', { name: noteName }));
     }
     
     clearFingering() {
@@ -5362,23 +5349,6 @@ document.addEventListener('DOMContentLoaded', () => {
         e.target.value = ''; // Сбрасываем значение
         releaseButtonFocus();
     });
-    
-    // Загрузка MIDI
-    const midiButton = document.getElementById('btn-midi');
-    const midiInput = document.getElementById('midi-input');
-    
-    if (midiButton && midiInput) {
-        midiButton.addEventListener('click', () => midiInput.click());
-        
-        midiInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                staffManager.readMidiFile(file);
-            }
-            e.target.value = ''; // Чтобы тот же файл можно было выбрать снова
-        releaseButtonFocus();
-        });
-    }
     
     // Настройки
     document.getElementById('image-size-slider').addEventListener('input', (e) => {
