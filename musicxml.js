@@ -722,121 +722,24 @@
         var clefSign = clefMatch ? clefMatch[1] : '';
 
 
+        // Позиции берём из общего прохода: время считается от начала такта,
+        // а не суммой подряд. Раньше партия с двумя станами (<backup>)
+        // склеивалась в одну линию, и мелодия уезжала от сопровождения:
+        // у струнных - на 35 долей, у рояля - на 4
+        var walked = walkPart(body, file.drums);
+        var items = walked.items;
+
         var elements = [];
         var skippedChords = 0;
         var skippedGrace = 0;
         var voices = {};
-        var octaveShift = 0;
-        // Деления на четверть: без них <duration> не перевести во доли
-        var divisions = 0;
 
-        // Идём по документу по порядку: знак 8va действует на ноты после себя,
-        // поэтому одними нотами не обойтись, нужны и указания.
-        // Атрибуты нужны ради <divisions> - от них зависит точное время нот
-        var scan = /<(note|direction|barline|attributes)(\s[^>]*)?>([\s\S]*?)<\/\1>/g;
-        var pendingVolta = null;   // номер концовки, объявленной перед нотами
-        var pendingRepeat = false; // реприза, объявленная перед нотами
-        var item;
-        while ((item = scan.exec(body))) {
-            var kind = item[1];
-            var noteBody = item[3];
-
-            if (kind === 'attributes') {
-                var divisionsMatch = /<divisions>(\d+)<\/divisions>/.exec(noteBody);
-                if (divisionsMatch && Number(divisionsMatch[1]) > 0) divisions = Number(divisionsMatch[1]);
-                continue;
-            }
-
-            if (kind === 'barline') {
-                // Вольта: концовка с номером. Начало помечаем следующей ноте,
-                // конец - предыдущей, как это делают нотные редакторы
-                var endingMatch = /<ending([^>]*)>/.exec(item[3]);
-                if (endingMatch) {
-                    var numberMatch = /number=[\x22\x27]([^\x22\x27]*)[\x22\x27]/.exec(endingMatch[1]);
-                    var typeMatch2 = /type="([a-z]+)"/.exec(endingMatch[1]);
-                    var endingNumber = numberMatch ? numberMatch[1] : '';
-                    var endingType = typeMatch2 ? typeMatch2[1] : '';
-                    if (endingType === 'start') pendingVolta = endingNumber;
-                    else if (endingType === 'stop' || endingType === 'discontinue') {
-                        if (elements.length) elements[elements.length - 1].voltaStop = true;
-                    }
-                }
-                // Репризы: у приложения свои метки на элементах
-                if (/<repeat[^>]*direction="backward"/.test(item[3])) {
-                    if (elements.length) elements[elements.length - 1].repeatEnd = true;
-                }
-                if (/<repeat[^>]*direction="forward"/.test(item[3])) {
-                    pendingRepeat = true;
-                }
-                continue;
-            }
-
-            if (kind === 'direction') {
-                var shiftTag = /<octave-shift[^>]*>/.exec(noteBody);
-                if (shiftTag) {
-                    var typeMatch = /type="([a-z]+)"/.exec(shiftTag[0]);
-                    var sizeMatch = /size="(\d+)"/.exec(shiftTag[0]);
-                    var steps = 12;
-                    if (sizeMatch && Number(sizeMatch[1]) === 15) steps = 24;
-                    if (sizeMatch && Number(sizeMatch[1]) === 22) steps = 36;
-                    var shiftType = typeMatch ? typeMatch[1] : '';
-                    if (shiftType === 'up') octaveShift = steps;
-                    else if (shiftType === 'down') octaveShift = -steps;
-                    else if (shiftType === 'stop') octaveShift = 0;
-                    // continue значит знак тянется на следующую строку: оставляем
-                }
-                continue;
-            }
-
-            var element = parseNote(noteBody, divisions);
-
-            // Аккорд: приложение одноголосное, и для саксофона нужна верхняя
-            // линия, поэтому из тонов аккорда оставляем самый высокий
-            if (element.chordTone) {
-                skippedChords++;
-                var previousNote = elements[elements.length - 1];
-                if (previousNote && !previousNote.isRest) {
-                    var wasPitch = pitchNumber(previousNote.noteName);
-                    var nowPitch = pitchNumber(element.noteName);
-                    if (wasPitch !== null && nowPitch !== null && nowPitch > wasPitch) {
-                        elements[elements.length - 1] = element;
-                    }
-                }
-                continue;
-            }
-            // Форшлаг длительности не имеет: полной нотой он сдвинул бы такт
-            if (/<grace\s*\/>/.test(noteBody)) { skippedGrace++; continue; }
-            // Ноту без высоты, которую мы не понимаем, лучше пропустить
-            if (!element.isRest && !element.noteName) continue;
-
-            // 8va и 8vb: ноты записаны условно, звучат на октаву выше или ниже
-            if (octaveShift && element.noteName) {
-                var pitch = pitchOf(element.noteName);
-                if (pitch) {
-                    var accidental = pitch.alter > 0 ? '#' : (pitch.alter < 0 ? 'b' : '');
-                    element.noteName = pitch.step + accidental + (pitch.octave + octaveShift / 12);
-                    element.displayName = element.noteName;
-                }
-            }
-
-            if (pendingVolta) {
-                element.voltaStart = pendingVolta;
-                pendingVolta = null;
-            }
-            if (pendingRepeat) {
-                element.repeatStart = true;
-                pendingRepeat = false;
-            }
-
-            var voiceMatch = /<voice>([^<]+)<\/voice>/.exec(noteBody);
-            var voiceNumber = voiceMatch ? voiceMatch[1].trim() : '1';
-            voices[voiceNumber] = (voices[voiceNumber] || 0) + 1;
-            element.voice = voiceNumber;
-            elements.push(element);
-        }
-
-        // Несколько голосов: берём тот, где больше нот, как верхнюю линию.
-        // Иначе многоголосие склеилось бы в кашу
+        // Один голос: там, где нот больше. Иначе многоголосие склеилось бы в кашу
+        items.forEach(function (item) {
+            if (item.isGrace) { skippedGrace++; return; }
+            if (item.tab) return;
+            voices[item.voice] = (voices[item.voice] || 0) + 1;
+        });
         var voiceKeys = Object.keys(voices);
         var mainVoice = '';
         voiceKeys.forEach(function (key) {
@@ -844,11 +747,92 @@
         });
         var droppedVoices = 0;
         if (voiceKeys.length > 1) {
-            var beforeFilter = elements.length;
-            elements = elements.filter(function (element) { return element.voice === mainVoice; });
-            droppedVoices = beforeFilter - elements.length;
+            items.forEach(function (item) {
+                if (!item.isGrace && !item.tab && item.voice !== mainVoice) droppedVoices++;
+            });
         }
-        elements.forEach(function (element) { delete element.voice; });
+
+        // Время идёт по позициям файла. Порядок в документе может быть не по
+        // времени, поэтому сортируем
+        var line = items
+            .filter(function (item) { return !item.isGrace && !item.tab && item.voice === mainVoice; })
+            .sort(function (a, b) { return a.startBeat - b.startBeat; });
+
+        var cursor = 0;      // докуда дошла линейная запись
+        var lastNote = null; // предыдущая нота - для наложений
+
+        // Разрыв между элементами заполняем паузами: иначе стан окажется
+        // короче пьесы и мелодия убежит вперёд
+        function pushRest(beats) {
+            var fitted = fitTiming(beats, { duration: 4, dotted: 0, tuplet: null });
+            var rest = {
+                isRest: true,
+                noteName: null,
+                displayName: null,
+                duration: fitted ? fitted.duration : 4,
+                dotted: fitted ? fitted.dotted : 0,
+                currentVariant: 1,
+                // Настоящее время паузы: запись его может не выражать
+                beats: beats
+            };
+            if (fitted && fitted.tuplet) rest.tuplet = fitted.tuplet;
+            elements.push(rest);
+            cursor += beats;
+            lastNote = null;
+        }
+
+        line.forEach(function (item) {
+            var gap = item.startBeat - cursor;
+            if (gap > 0.01) pushRest(gap);
+
+            var element = {
+                isRest: item.isRest,
+                noteName: item.noteName || null,
+                displayName: item.noteName || null,
+                duration: item.durationType,
+                dotted: item.dotted,
+                currentVariant: Number(item.variant) || 1,
+                // Точное время из файла: запись его не всегда выражает
+                beats: item.beats
+            };
+            if (item.tuplet) element.tuplet = item.tuplet;
+            if (item.tiedToNext) element.tiedToNext = true;
+            if (item.slurStart) element.slurStart = true;
+            if (item.slurEnd) element.slurEnd = true;
+            if (item.voltaStart) element.voltaStart = item.voltaStart;
+            if (item.voltaStop) element.voltaStop = true;
+            if (item.repeatStart) element.repeatStart = true;
+            if (item.repeatEnd) element.repeatEnd = true;
+
+            // Наложение: этот момент уже занят нотой. Приложение одноголосное,
+            // поэтому остаётся верхняя линия - так же, как из аккорда
+            if (!item.isRest && item.startBeat < cursor - 0.01) {
+                if (item.isChord) skippedChords++;
+                var busy = elements.length ? elements[elements.length - 1] : null;
+                if (!busy) return;
+                // Длительность берём у занятого места: иначе время потеряется
+                var span = busy.beats;
+                var overWas = busy.isRest ? null : pitchNumber(busy.noteName);
+                var overNow = pitchNumber(element.noteName);
+                var better = busy.isRest || (overWas !== null && overNow !== null && overNow > overWas);
+                if (better) {
+                    element.beats = span;
+                    elements[elements.length - 1] = element;
+                    lastNote = element;
+                }
+                return;
+            }
+            if (item.isChord) { skippedChords++; return; }
+
+            elements.push(element);
+            lastNote = element;
+            cursor = item.startBeat + item.beats;
+        });
+
+        // Хвост пьесы: если партия замолкает раньше конца, добираем паузой -
+        // иначе стан короче сопровождения
+        if (walked.endBeat - cursor > 0.01) pushRest(walked.endBeat - cursor);
+
 
         return {
             elements: elements,
@@ -937,13 +921,14 @@
         // звучало бы на октаву ниже сопровождения из MIDI
         var midi = pitchNumber(name);
         if (midi === null) return null;
-        return { midi: midi + 12, unpitched: unpitched };
+        return { midi: midi + 12, unpitched: unpitched, name: name };
     }
 
-    // Порядок элементов внутри такта: ноты, отводы курсора и смена атрибутов
+    // Порядок элементов внутри такта: ноты, отводы курсора, смена атрибутов,
+    // тактовые черты и указания (8va, вольты, репризы)
     function measureTokens(body) {
         var tokens = [];
-        var open = /<(note|backup|forward|attributes)(?=[\s\/>])([^>]*?)(\/)?>/g;
+        var open = /<(note|backup|forward|attributes|barline|direction)(?=[\s\/>])([^>]*?)(\/)?>/g;
         var match;
         while ((match = open.exec(body))) {
             var tag = match[1];
@@ -996,20 +981,21 @@
         return names;
     }
 
-    // Разбор одной партии целиком: все голоса, абсолютные позиции в долях,
-    // транспозиция партии и признак ударных
-    function parsePart(xml, partId) {
-        var text = String(xml || '');
-        var file = fileOf(text);
-        var chosen = null;
-        file.parts.forEach(function (part) {
-            if (chosen) return;
-            if (!partId || part.id === partId) chosen = part;
-        });
-        var names = file.names;
-        var drums = file.drums;
-
-        var body = chosen ? chosen.body : '';
+    // Один проход по партии: все ноты и паузы с настоящими позициями.
+    //
+    // Это единственное место, где считается время. И стан, и сопровождение
+    // берут позиции отсюда: раньше стан считал время суммой длительностей
+    // подряд, а сопровождение - от начала такта, и партии с <backup> уезжали
+    // друг относительно друга (у струнных - на 35 долей, у рояля - на 4).
+    //
+    // Правила:
+    //   - <note> двигает курсор на свою длительность, <note> с <chord/> - нет;
+    //   - <backup> отводит курсор назад, <forward> вперёд;
+    //   - смена <divisions> пересчитывает курсор и длину такта;
+    //   - длина такта - докуда он дошёл (верно для затакта и смены размера);
+    //   - такт, не влезающий в размер, укладывается в него (так выходят
+    //     барабанные дроби у Guitar Pro).
+    function walkPart(body, drums) {
         var measures = blocks(body, 'measure');
         // Партия без тактов: считаем её содержимое одним тактом
         if (!measures.length && body) measures = [{ inner: body }];
@@ -1018,9 +1004,10 @@
         if (transpose === null) transpose = 0;
         // Ударные узнаются по ключу перкуссии и по нотам без высоты
         var percussion = /<sign>\s*percussion\s*<\/sign>/.test(body);
+        drums = drums || {};
+
         // Табулатурный стан - не второй инструмент, а та же музыка, записанная
-        // цифрами: у гитары и струнных он дублирует ноты (иногда на октаву ниже).
-        // Играть его вместе с нотным станом - значит слышать каждую ноту дважды
+        // цифрами: у гитары и струнных он дублирует ноты (иногда на октаву ниже)
         var tabStaves = {};
         var clefRe = /<clef(?=[\s\/>])([^>]*?)(\/)?>([\s\S]*?)<\/clef>/g;
         var clefMatch;
@@ -1031,27 +1018,67 @@
         }
 
         var divisions = 1;
+        var hasDivisions = false;
         var measureBeats = 4;
         var hasTime = false;
         var measureStart = 0;
         var measureLengths = [];
-        var notes = [];
-        var lastByVoice = {};
-        var tied = {};
+        var items = [];
+        var octaveShift = 0;
+        var pendingVolta = null;   // номер концовки, объявленной перед нотами
+        var pendingRepeat = false; // реприза, объявленная перед нотами
 
         measures.forEach(function (measure) {
             var cursor = 0;
             var maxCursor = 0;
             var previousStart = null;
-            var collected = [];
             var times = /<time(?=[\s\/>])[\s\S]*?<beats>(\d+)<\/beats>[\s\S]*?<beat-type>(\d+)<\/beat-type>[\s\S]*?<\/time>/.exec(measure.inner);
             if (times) {
                 measureBeats = Number(times[1]) * 4 / Number(times[2]);
                 hasTime = true;
             }
 
+            var inMeasure = [];
+
             measureTokens(measure.inner).forEach(function (token) {
                 var inner = token.inner;
+
+                if (token.tag === 'barline') {
+                    // Вольта: начало помечаем следующей ноте, конец - предыдущей
+                    var ending = /<ending([^>]*)>/.exec(inner);
+                    if (ending) {
+                        var endingNumber = attributeOf(' ' + ending[1] + ' ', 'number');
+                        var endingType = attributeOf(' ' + ending[1] + ' ', 'type');
+                        if (endingType === 'start') pendingVolta = endingNumber;
+                        else if (endingType === 'stop' || endingType === 'discontinue') {
+                            var lastItem = inMeasure.length ? inMeasure[inMeasure.length - 1]
+                                : (items.length ? items[items.length - 1] : null);
+                            if (lastItem) lastItem.voltaStop = true;
+                        }
+                    }
+                    // Репризы: у приложения свои метки на элементах
+                    if (/<repeat[^>]*direction=[\x22\x27]backward[\x22\x27]/.test(inner)) {
+                        var lastRepeat = inMeasure.length ? inMeasure[inMeasure.length - 1]
+                            : (items.length ? items[items.length - 1] : null);
+                        if (lastRepeat) lastRepeat.repeatEnd = true;
+                    }
+                    if (/<repeat[^>]*direction=[\x22\x27]forward[\x22\x27]/.test(inner)) pendingRepeat = true;
+                    return;
+                }
+
+                if (token.tag === 'direction') {
+                    var shiftTag = /<octave-shift[^>]*>/.exec(inner);
+                    if (shiftTag) {
+                        var shiftType = attributeOf(' ' + shiftTag[0], 'type');
+                        var size = Number(attributeOf(' ' + shiftTag[0], 'size')) || 8;
+                        var steps = size === 15 ? 24 : (size === 22 ? 36 : 12);
+                        if (shiftType === 'up') octaveShift = steps;
+                        else if (shiftType === 'down') octaveShift = -steps;
+                        else if (shiftType === 'stop') octaveShift = 0;
+                        // continue значит знак тянется на следующую строку: оставляем
+                    }
+                    return;
+                }
 
                 if (token.tag === 'attributes') {
                     var divMatch = /<divisions>(\d+)<\/divisions>/.exec(inner);
@@ -1059,6 +1086,7 @@
                         var next = Number(divMatch[1]);
                         // Курсор и длина такта уже набраны в прежних делениях:
                         // без пересчёта позиция после смены уедет
+                        if (next > 0) hasDivisions = true;
                         if (next > 0 && next !== divisions) {
                             cursor = cursor * next / divisions;
                             maxCursor = maxCursor * next / divisions;
@@ -1079,10 +1107,21 @@
                     return;
                 }
 
-                // Ноты
+                // Ноты и паузы
                 var isChord = /<chord(?=[\s\/>])/.test(inner);
                 var isGrace = /<grace(?=[\s\/>])/.test(inner);
+                var isRest = /<rest(?=[\s\/>])/.test(inner);
+                var timing = parseTiming(inner);
+
                 var duration = Number(textOf(inner, 'duration')) || 0;
+                // В файле без <divisions> число в <duration> бессмысленно:
+                // считаем время по записанной длительности
+                if (!hasDivisions) {
+                    // У форшлага времени нет в любом случае
+                    duration = isGrace ? 0 : beatsOf({
+                        duration: timing.duration, dotted: timing.dotted, tuplet: timing.tuplet
+                    }) * divisions;
+                }
 
                 var start = (isChord && previousStart !== null) ? previousStart : cursor;
                 if (!isChord) {
@@ -1090,33 +1129,69 @@
                     cursor += duration;
                     if (cursor > maxCursor) maxCursor = cursor;
                 }
-                // Форшлаг времени не занимает и в сопровождении не играется
-                if (isGrace || /<rest(?=[\s\/>])/.test(inner)) return;
-                // Ноты табулатурного стана пропускаем: это тот же материал
-                if (tabStaves[textOf(inner, 'staff') || '1']) return;
 
-                var pitch = midiOfNote(inner);
-                if (!pitch) return;
-
-                // Ударные: у ноты есть номер инструмента, и по его названию
-                // видно, бочка это или хай-хэт. Иначе щелчки неразличимы
-                var midi = pitch.midi;
-                if (pitch.unpitched) {
-                    percussion = true;
-                    var instrumentMatch = /<instrument(?=[\s\/>])([^>]*?)(\/)?>/.exec(inner);
-                    var instrumentId = instrumentMatch ? attributeOf(' ' + instrumentMatch[1] + ' ', 'id') : '';
-                    if (instrumentId && drums[instrumentId]) midi = drums[instrumentId];
-                } else {
-                    midi = pitch.midi + transpose;
+                // Точное время важнее написанного: иначе такт не сходится.
+                // Триоли записаны явно - их не пересчитываем
+                var trueBeats = (isGrace || !hasDivisions) ? 0 : (timing.tuplet ? null : durationBeats(inner, divisions));
+                var fitted = fitTiming(trueBeats, timing);
+                if (fitted) {
+                    timing.duration = fitted.duration;
+                    timing.dotted = fitted.dotted;
+                    timing.tuplet = fitted.tuplet;
                 }
 
-                collected.push({
-                    midi: midi,
+                var item = {
                     start: start,
-                    beats: duration,
+                    duration: duration,
+                    isRest: isRest,
+                    isChord: isChord,
+                    isGrace: isGrace,
                     voice: textOf(inner, 'voice') || '1',
-                    tied: /<tie[^>]*type=[\x22\x27]start[\x22\x27]/.test(inner)
-                });
+                    staff: textOf(inner, 'staff') || '1',
+                    tab: !!tabStaves[textOf(inner, 'staff') || '1'],
+                    // Как нота записана - для знака на стане
+                    durationType: timing.duration,
+                    dotted: timing.dotted,
+                    tuplet: timing.tuplet,
+                    tiedToNext: /<tie[^>]*type=[\x22\x27]start[\x22\x27]/.test(inner),
+                    slurStart: /<slur[^>]*type=[\x22\x27]start[\x22\x27]/.test(inner),
+                    slurEnd: /<slur[^>]*type=[\x22\x27]stop[\x22\x27]/.test(inner),
+                    voltaStart: pendingVolta,
+                    repeatStart: pendingRepeat,
+                    // Вариант аппликатуры из расширения приложения
+                    variant: (/sax-fingering-variant=(\d+)/.exec(inner) || [0, 1])[1]
+                };
+                pendingVolta = null;
+                pendingRepeat = false;
+
+                if (!isRest) {
+                    var pitch = midiOfNote(inner);
+                    // Ноту без высоты, которую мы не понимаем, лучше пропустить
+                    if (!pitch) return;
+                    item.unpitched = pitch.unpitched;
+                    item.noteName = pitch.name;
+                    item.pitch = pitch.midi;
+
+                    // 8va и 8vb: ноты записаны условно, звучат на октаву выше/ниже
+                    if (octaveShift) {
+                        item.pitch = pitch.midi + octaveShift;
+                        var decoded = pitchOf(pitch.name);
+                        if (decoded && !pitch.unpitched) {
+                            var accidental = decoded.alter > 0 ? '#' : (decoded.alter < 0 ? 'b' : '');
+                            item.noteName = decoded.step + accidental + (decoded.octave + octaveShift / 12);
+                        }
+                    }
+
+                    // Ударные: по названию инструмента видно, бочка это или хай-хэт
+                    if (pitch.unpitched) {
+                        percussion = true;
+                        var instrumentMatch = /<instrument(?=[\s\/>])([^>]*?)(\/)?>/.exec(inner);
+                        var instrumentId = instrumentMatch ? attributeOf(' ' + instrumentMatch[1] + ' ', 'id') : '';
+                        if (instrumentId && drums[instrumentId]) item.drumNumber = drums[instrumentId];
+                    }
+                }
+
+                inMeasure.push(item);
             });
 
             // Длина такта - докуда он дошёл. Так это верно и для затакта,
@@ -1127,36 +1202,79 @@
 
             // Такт, который не влезает в размер, встречается в чужих выгрузках:
             // у Guitar Pro так выходят барабанные дроби, и там же теряются ноты.
-            // Такой такт сдвинул бы всё после себя (барабаны уезжали на 9 долей),
-            // поэтому укладываем его ноты в размер такта
+            // Такой такт сдвинул бы всё после себя, поэтому укладываем его
+            // ноты в размер такта
             var factor = 1;
             if (hasTime && length > measureBeats + 1e-6) {
                 factor = measureBeats / length;
                 length = measureBeats;
             }
 
-            collected.forEach(function (item) {
-                var startBeat = measureStart + item.start * factor / divisions;
-                var beats = item.beats * factor / divisions;
-
-                // Связанные ноты по разные стороны черты - это одна нота.
-                // Без склейки на стыке слышен лишний удар
-                var previous = lastByVoice[item.voice];
-                if (tied[item.voice] && previous && previous.midi === item.midi &&
-                    Math.abs(previous.startBeat + previous.beats - startBeat) < 1e-6) {
-                    previous.beats = startBeat + beats - previous.startBeat;
-                } else {
-                    var note = {
-                        midi: item.midi, startBeat: startBeat, beats: beats, voice: item.voice
-                    };
-                    notes.push(note);
-                    lastByVoice[item.voice] = note;
-                }
-                tied[item.voice] = item.tied;
+            inMeasure.forEach(function (item) {
+                item.startBeat = measureStart + item.start * factor / divisions;
+                item.beats = item.duration * factor / divisions;
+                items.push(item);
             });
 
             measureLengths.push(length);
             measureStart += length;
+        });
+
+        return {
+            items: items,
+            transpose: transpose,
+            percussion: percussion,
+            divisions: divisions,
+            measureCount: measures.length,
+            measureLengths: measureLengths,
+            endBeat: measureStart
+        };
+    }
+
+    // Разбор одной партии целиком: абсолютные позиции в долях,
+    // транспозиция партии и признак ударных
+    function parsePart(xml, partId) {
+        var text = String(xml || '');
+        var file = fileOf(text);
+        var chosen = null;
+        file.parts.forEach(function (part) {
+            if (chosen) return;
+            if (!partId || part.id === partId) chosen = part;
+        });
+        var names = file.names;
+
+        var body = chosen ? chosen.body : '';
+        var walked = walkPart(body, file.drums);
+        var transpose = walked.transpose;
+        var percussion = walked.percussion;
+
+        var notes = [];
+        var lastByVoice = {};
+        var tied = {};
+
+        walked.items.forEach(function (item) {
+            // Форшлаг времени не занимает и в сопровождении не играется
+            if (item.isGrace || item.isRest) return;
+            // Ноты табулатурного стана пропускаем: это тот же материал
+            if (item.tab) return;
+
+            var midi = item.unpitched ? (item.drumNumber || item.pitch) : (item.pitch + transpose);
+
+            // Связанные ноты по разные стороны черты - это одна нота.
+            // Без склейки на стыке слышен лишний удар
+            var previous = lastByVoice[item.voice];
+            if (tied[item.voice] && previous && previous.midi === midi &&
+                Math.abs(previous.startBeat + previous.beats - item.startBeat) < 1e-6) {
+                previous.beats = item.startBeat + item.beats - previous.startBeat;
+            } else {
+                var note = {
+                    midi: midi, startBeat: item.startBeat, beats: item.beats,
+                    voice: item.voice, chord: !!item.isChord
+                };
+                notes.push(note);
+                lastByVoice[item.voice] = note;
+            }
+            tied[item.voice] = item.tiedToNext;
         });
 
         return {
@@ -1165,10 +1283,10 @@
             name: names[chosen ? attributeOf(chosen.attrs, 'id') : ''] || '',
             percussion: percussion,
             transpose: transpose,
-            divisions: divisions,
-            measureCount: measures.length,
-            measureLengths: measureLengths,
-            endBeat: measureStart,
+            divisions: walked.divisions,
+            measureCount: walked.measureCount,
+            measureLengths: walked.measureLengths,
+            endBeat: walked.endBeat,
             notes: notes
         };
     }
