@@ -33,8 +33,12 @@
         32: 'thirty-second'
     };
 
-    // Доли одной ноты: длительность, точки и отношение триоли
+    // Доли одной ноты: длительность, точки и отношение триоли.
+    // Если известенf точное время из файла (поле beats), оно главнее: <type>
+    // бывает приблизительным, а <duration> - это настоящее время ноты
     function beatsOf(element) {
+        if (element && typeof element.beats === 'number' && element.beats > 0) return element.beats;
+
         var denominator = Number(element.duration) || 4;
         var beats = 4 / denominator;
 
@@ -485,7 +489,59 @@
         return { duration: denominator, dotted: dots, tuplet: tuplet };
     }
 
-    function parseNote(noteXml) {
+    // Длительности, которыми запись вообще может быть записана
+    var FIT_DENOMINATORS = [1, 2, 4, 8, 16, 32, 64];
+    var FIT_TUPLETS = [
+        null,
+        { actual: 3, normal: 2 },
+        { actual: 5, normal: 4 },
+        { actual: 7, normal: 4 }
+    ];
+
+    // Точное время ноты из <duration>: в MusicXML это и есть настоящее время,
+    // а <type> - только то, как нота записана
+    function durationBeats(noteXml, divisions) {
+        if (!divisions) return null;
+        var match = /<duration>(\d+)<\/duration>/.exec(noteXml);
+        if (!match) return null;
+        return Number(match[1]) / divisions;
+    }
+
+    // Подбор записываемой длительности по точному времени. Конвертеры из MIDI
+    // пишут <type> приблизительно (например, обычную восьмую там, где на самом
+    // деле триольная четверть). Если верить <type>, мелодия играет не по сетке
+    // тактов и расходится с сопровождением: в чистке New York сумма выходила
+    // 314.7 доли вместо 352.
+    // Возвращает null, если написанное уже совпадает с точным или подходящей
+    // записываемой длительности нет - тогда остаётся то, что в файле
+    function fitTiming(trueBeats, timing) {
+        if (!trueBeats || !(trueBeats > 0)) return null;
+
+        var written = beatsOf({
+            duration: timing.duration,
+            dotted: timing.dotted,
+            tuplet: timing.tuplet
+        });
+        if (Math.abs(written - trueBeats) < 0.01) return null;
+
+        var best = null;
+        FIT_DENOMINATORS.forEach(function (denominator) {
+            FIT_TUPLETS.forEach(function (tuplet) {
+                for (var dots = 0; dots <= 3; dots++) {
+                    var beats = beatsOf({ duration: denominator, dotted: dots, tuplet: tuplet });
+                    var diff = Math.abs(beats - trueBeats);
+                    if (diff > 0.01) continue;
+                    if (!best || diff < best.diff) {
+                        best = { diff: diff, duration: denominator, dotted: dots, tuplet: tuplet };
+                    }
+                }
+            });
+        });
+
+        return best;
+    }
+
+    function parseNote(noteXml, divisions) {
         var isRest = /<rest\s*\/>/.test(noteXml);
         // <chord/> означает, что это ещё один тон того же аккорда.
         // Приложение одноголосное, поэтому дополнительный тон пропускаем:
@@ -504,6 +560,21 @@
         }
 
         var timing = parseTiming(noteXml);
+
+        // Точное время берём из <duration>, но только если в файле вообще
+        // объявлены <divisions> и только для нот без триоли: триоль записана
+        // явно, и пересчитывать её по <duration> значит потерять скобку
+        var trueBeats = timing.tuplet ? null : durationBeats(noteXml, divisions);
+
+        // Точное время важнее написанного: иначе такт не сходится и мелодия
+        // уезжает относительно сетки
+        var exact = fitTiming(trueBeats, timing);
+        if (exact) {
+            timing.duration = exact.duration;
+            timing.dotted = exact.dotted;
+            timing.tuplet = exact.tuplet;
+        }
+
         var variant = /sax-fingering-variant=(\d+)/.exec(noteXml);
 
         var element = {
@@ -517,6 +588,15 @@
         };
 
         if (timing.tuplet) element.tuplet = timing.tuplet;
+
+        // Записываемая длительность не всегда может выразить точное время:
+        // в чистке New York у 51 ноты из 322 это 0,833 доли - такую длительность
+        // одной нотой не записать. Тогда точное время храним рядом и играем по
+        // нему, а на стане остаётся ближайший записываемый знак
+        if (trueBeats > 0 && Math.abs(beatsOf(element) - trueBeats) > 0.01) {
+            element.beats = trueBeats;
+        }
+
         if (/<tie type="start"/.test(noteXml)) element.tiedToNext = true;
         if (/<slur type="start"/.test(noteXml)) element.slurStart = true;
         if (/<slur type="stop"/.test(noteXml)) element.slurEnd = true;
@@ -647,16 +727,25 @@
         var skippedGrace = 0;
         var voices = {};
         var octaveShift = 0;
+        // Деления на четверть: без них <duration> не перевести во доли
+        var divisions = 0;
 
         // Идём по документу по порядку: знак 8va действует на ноты после себя,
-        // поэтому одними нотами не обойтись, нужны и указания
-        var scan = /<(note|direction|barline)(\s[^>]*)?>([\s\S]*?)<\/\1>/g;
+        // поэтому одними нотами не обойтись, нужны и указания.
+        // Атрибуты нужны ради <divisions> - от них зависит точное время нот
+        var scan = /<(note|direction|barline|attributes)(\s[^>]*)?>([\s\S]*?)<\/\1>/g;
         var pendingVolta = null;   // номер концовки, объявленной перед нотами
         var pendingRepeat = false; // реприза, объявленная перед нотами
         var item;
         while ((item = scan.exec(body))) {
             var kind = item[1];
             var noteBody = item[3];
+
+            if (kind === 'attributes') {
+                var divisionsMatch = /<divisions>(\d+)<\/divisions>/.exec(noteBody);
+                if (divisionsMatch && Number(divisionsMatch[1]) > 0) divisions = Number(divisionsMatch[1]);
+                continue;
+            }
 
             if (kind === 'barline') {
                 // Вольта: концовка с номером. Начало помечаем следующей ноте,
@@ -699,7 +788,7 @@
                 continue;
             }
 
-            var element = parseNote(noteBody);
+            var element = parseNote(noteBody, divisions);
 
             // Аккорд: приложение одноголосное, и для саксофона нужна верхняя
             // линия, поэтому из тонов аккорда оставляем самый высокий

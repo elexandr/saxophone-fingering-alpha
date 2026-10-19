@@ -1160,6 +1160,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         if (options.history !== false) this.pushHistory();
         
         element.duration = duration;
+        // Пользователь выбрал длительность сам: точное время из файла больше
+        // не главнее, иначе нота играла бы по-старому
+        delete element.beats;
         this.refreshElement(element);
         // Длительность влияет на границы тактов, поэтому черты пересчитываем
         if (!options.silent) {
@@ -1176,6 +1179,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         
         if (options.history !== false) this.pushHistory();
         element.dotted = count;
+        delete element.beats;
         this.refreshElement(element);
         // Точка меняет длительность, а значит и границы тактов
         if (!options.silent) {
@@ -3233,7 +3237,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     
     // Длительность элемента в четвертях
     elementBeats(element) {
-        return Playback.beatsFor(element.duration, element.dotted, element.tuplet);
+        return Playback.beatsOf(element);
     }
     
     // Длина такта в четвертях: 4/4 -> 4, 6/8 -> 3
@@ -3689,6 +3693,18 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         clearTimeout(this.flashTimer);
         this.flashTimer = setTimeout(() => flash.classList.remove('on'), 60);
     }
+    // Положение прокрутки запоминаем по событию, а не чтением scrollTop:
+    // чтение scrollTop сразу после смены класса заставляет браузер немедленно
+    // пересчитать вёрстку всего стана, а это делается на каждую ноту
+    trackScroll() {
+        if (this.scrollTracked) return;
+        const area = document.querySelector('.scrollable-area');
+        if (!area) return;
+        this.scrollTopNow = area.scrollTop;
+        area.addEventListener('scroll', () => { this.scrollTopNow = area.scrollTop; }, { passive: true });
+        this.scrollTracked = true;
+    }
+
     followPlayback(element, options = {}) {
         if (!element) return;
         
@@ -3700,13 +3716,15 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             systemIndex += 1;
         }
         
+        this.trackScroll();
+
         // Читаем координаты только при смене строки: иначе на каждую ноту
         // идёт принудительный пересчёт вёрстки, и подсветка подтормаживает
         // Один раз на строку: повторные чтения координат тормозят подсветку.
         // Но если область прокрутили вручную, следим заново
-        const scrolledByHand = area.scrollTop !== this.followedScrollTop;
+        const scrolledByHand = this.scrollTopNow !== this.followedScrollTop;
         if (!options.instant && this.followedSystem === systemIndex && !scrolledByHand) return;
-        this.followedScrollTop = area.scrollTop;
+        this.followedScrollTop = this.scrollTopNow;
 
         const staff = this.staffContainers[systemIndex];
         // Именно строка целиком: в неё входят и стан, и ряд аппликатур.
@@ -3760,13 +3778,19 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     // Узлы подсветки готовим заранее: в кадре не должно быть поиска по документу,
     // иначе подсветка отстаёт от звука на время этого поиска
     prepareHighlightNodes(sequence) {
-        this.highlightNodes = new Map();
+        // Один обход документа вместо запроса на каждый элемент: при трёхстах
+        // нотах это триста поисков по всему документу
+        const cards = new Map();
+        document.querySelectorAll('.fingering-card[data-note-id]').forEach(card => {
+            cards.set(card.getAttribute('data-note-id'), card);
+        });
 
+        this.highlightNodes = new Map();
         (sequence || []).forEach(element => {
             if (!element || !element.id) return;
             this.highlightNodes.set(element.id, {
                 anchor: element.element,
-                card: document.querySelector('.fingering-card[data-note-id="' + element.id + '"]')
+                card: cards.get(element.id) || null
             });
         });
     }
@@ -3873,6 +3897,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 slurStart: !!note.slurStart,
                 slurEnd: !!note.slurEnd,
                 tuplet: note.tuplet || null,
+                // Точное время из MusicXML: записываемая длительность его не
+                // всегда выражает, а играть надо по настоящему времени
+                beats: typeof note.beats === 'number' ? note.beats : null,
                 currentVariant: note.currentVariant || 1,
                 hasBarLine: !!note.hasBarLine,
                 repeatStart: !!note.repeatStart,
@@ -3952,6 +3979,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             element.slurStart = !!item.slurStart;
             element.slurEnd = !!item.slurEnd;
             element.tuplet = item.tuplet || null;
+            // Точное время: приходит из MusicXML и из автосохранения
+            if (typeof item.beats === 'number' && item.beats > 0) {
+                element.beats = item.beats;
+            } else {
+                delete element.beats;
+            }
             
             // Возвращаем выбранный вариант аппликатуры
             if (!element.isRest && element.hasFingering && item.currentVariant > 1) {
@@ -4734,7 +4767,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         let beat = 0;
         
         sequence.forEach((element, index) => {
-            const beats = Playback.beatsFor(element.duration, element.dotted, element.tuplet);
+            const beats = Playback.beatsOf(element);
             const previous = index > 0 ? sequence[index - 1] : null;
 
             // Связанные лигой ноты в MIDI одним звуком: второй ноты нет,
@@ -5095,6 +5128,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
             // Поля лиг и триолей: запись их уже умеет, интерфейс появится позже
             if (item.tuplet) element.tuplet = item.tuplet;
+            // Точное время из файла: записываемая длительность не всегда может
+            // его выразить, а играть надо по настоящему времени, иначе мелодия
+            // расходится с сопровождением
+            if (item.beats) element.beats = item.beats;
             if (item.tiedToNext) element.tiedToNext = true;
             if (item.slurStart) element.slurStart = true;
             if (item.slurEnd) element.slurEnd = true;
@@ -5422,7 +5459,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (fromIndex > 0) {
                 for (let i = 0; i < fromIndex; i++) {
                     const element = fullSequence[i];
-                    accompanimentFromBeat += Playback.beatsFor(element.duration, element.dotted, element.tuplet);
+                    accompanimentFromBeat += Playback.beatsOf(element);
                 }
             }
 

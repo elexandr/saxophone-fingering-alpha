@@ -73,10 +73,19 @@
         return beats;
     }
 
+    // Длительность элемента в долях с учётом точного времени из файла.
+    // В MusicXML <type> бывает приблизительным (так пишут конвертеры из MIDI),
+    // а настоящее время лежит в <duration>; разбор кладёт его в поле beats.
+    // Если верить одному <type>, мелодия уезжает относительно сопровождения
+    function beatsOf(element) {
+        if (element && typeof element.beats === 'number' && element.beats > 0) return element.beats;
+        return beatsFor(element && element.duration, element && element.dotted, element && element.tuplet);
+    }
+
     // Длительность элемента в секундах при заданном темпе.
     function secondsFor(element, tempo) {
         var bpm = tempo > 0 ? tempo : 80;
-        return beatsFor(element && element.duration, element && element.dotted, element && element.tuplet) * (60 / bpm);
+        return beatsOf(element) * (60 / bpm);
     }
 
     function totalSeconds(elements, tempo) {
@@ -503,37 +512,72 @@
             scheduleAccompanimentPortion();
         }
 
+        // Расписание строим целиком сразу: это только числа, дешево. А звук
+        // ставим порциями, как и сопровождение: у длинной пьесы нот бывает
+        // под тысячу, и постановка всех сразу занимает главный поток на
+        // сотни миллисекунд - замерено 378 мс на 195 нотах
         plan.forEach(function (item, index) {
             var element = item.element;
-            var startAt = cursor;
-
-            // Основную линию можно выключить: подсветка при этом работает,
-            // потому что она идёт по времени, а не по звуку
-            if (!item.skip && !element.isRest) {
-                var frequency = noteToFrequency(element.noteName, self.transpose);
-                if (frequency) {
-                    // Под лигой нота звучит всю длительность, без разрыва
-                    var joined = slurJoined[index] || (slurJoined[index - 1] && !element.slurEnd && index > 0);
-                    self.scheduleNote(frequency, startAt, item.seconds * (joined ? 1 : 0.92), self.melodyBus);
-                }
-            }
-
-            timeline.push({ index: index, element: element, startAt: startAt });
+            timeline.push({
+                index: index,
+                element: element,
+                startAt: cursor,
+                seconds: item.seconds,
+                // Связанная нота продолжает звук предыдущей: её не ударяем
+                skip: item.skip,
+                // Под лигой нота звучит всю длительность, без разрыва
+                joined: slurJoined[index] || (slurJoined[index - 1] && !element.slurEnd && index > 0)
+            });
             // Время идёт по исходным длительностям: лига меняет звук, не такт
             cursor += secondsFor(element, tempo);
         });
 
-        // Метроном: щелчок на каждую долю, ударение на сильную
-        if (options.metronome) {
-            var beatSeconds = 60 / (tempo > 0 ? tempo : 80);
-            var beatsPerBar = options.beatsPerBar > 0 ? options.beatsPerBar : 4;
-            var startCursor = ctx.currentTime + leadIn;
-            var totalBeats = Math.round((cursor - startCursor) / beatSeconds);
+        var melodyIndex = 0;
 
-            for (var beat = 0; beat <= totalBeats; beat++) {
-                self.scheduleClick(startCursor + beat * beatSeconds, beat % beatsPerBar === 0);
+        // Метроном тоже ставим порциями: щелчков на всю пьесу бывает под четыре
+        // сотни, и разом они занимали главный поток сильнее, чем ноты
+        var beatSeconds = 60 / (tempo > 0 ? tempo : 80);
+        var beatsPerBar = options.beatsPerBar > 0 ? options.beatsPerBar : 4;
+        var metronomeOn = !!options.metronome;
+        var metronomeStart = ctx.currentTime + leadIn;
+        var metronomeTotal = metronomeOn ? Math.round((cursor - metronomeStart) / beatSeconds) : -1;
+        var metronomeBeat = 0;
+
+        function scheduleMelodyPortion() {
+            if (!self.playing) return;
+            var horizon = ctx.currentTime + 2.0;
+
+            while (melodyIndex < timeline.length) {
+                var step = timeline[melodyIndex];
+                if (step.startAt > horizon) break;
+                melodyIndex++;
+
+                // Основную линию можно выключить: подсветка при этом работает,
+                // потому что она идёт по времени, а не по звуку
+                if (step.skip || step.element.isRest) continue;
+                var frequency = noteToFrequency(step.element.noteName, self.transpose);
+                if (!frequency) continue;
+                self.scheduleNote(frequency, step.startAt,
+                    step.seconds * (step.joined ? 1 : 0.92), self.melodyBus);
+            }
+
+            if (metronomeOn) {
+                while (metronomeBeat <= metronomeTotal) {
+                    var clickAt = metronomeStart + metronomeBeat * beatSeconds;
+                    if (clickAt > horizon) break;
+                    self.scheduleClick(clickAt, metronomeBeat % beatsPerBar === 0);
+                    metronomeBeat++;
+                }
+            }
+
+            var melodyLeft = melodyIndex < timeline.length;
+            var metronomeLeft = metronomeOn && metronomeBeat <= metronomeTotal;
+            if (melodyLeft || metronomeLeft) {
+                self.timers.push(setTimeout(scheduleMelodyPortion, 500));
             }
         }
+
+        scheduleMelodyPortion();
 
         this.timeline = timeline;
         this.timelineIndex = 0;
@@ -675,6 +719,7 @@
         transposeNoteName: transposeNoteName,
         dotCount: dotCount,
         beatsFor: beatsFor,
+        beatsOf: beatsOf,
         secondsFor: secondsFor,
         totalSeconds: totalSeconds,
         computeRepeatPairs: computeRepeatPairs,
