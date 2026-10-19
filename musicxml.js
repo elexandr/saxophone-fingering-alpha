@@ -42,11 +42,15 @@
         var denominator = Number(element.duration) || 4;
         var beats = 4 / denominator;
 
+        // Каждая точка добавляет половину ПРЕДЫДУЩЕЙ добавки, а не половину
+        // уже выросшей длительности: две точки - это 1.75, а не 1.875
         var dots = Number(element.dotted) || 0;
         if (element.dotted === true) dots = 1;
-        if (dots > 0) beats += beats / 2;
-        if (dots > 1) beats += beats / 4;
-        if (dots > 2) beats += beats / 8;
+        var part = beats / 2;
+        for (var i = 0; i < dots; i++) {
+            beats += part;
+            part = part / 2;
+        }
 
         var tuplet = element.tuplet;
         if (tuplet && tuplet.actual && tuplet.normal) {
@@ -699,24 +703,50 @@
         var cursor = 0;      // докуда дошла линейная запись
         var lastNote = null; // предыдущая нота - для наложений
 
+        // Записываемые паузы от целой вниз: разрыв в сорок долей нельзя
+        // нарисовать одной паузой, поэтому набираем сумму из нескольких
+        var REST_LADDER = [
+            { duration: 1, dotted: 0, beats: 4 },
+            { duration: 2, dotted: 1, beats: 3 },
+            { duration: 2, dotted: 0, beats: 2 },
+            { duration: 4, dotted: 1, beats: 1.5 },
+            { duration: 4, dotted: 0, beats: 1 },
+            { duration: 8, dotted: 1, beats: 0.75 },
+            { duration: 8, dotted: 0, beats: 0.5 },
+            { duration: 16, dotted: 1, beats: 0.375 },
+            { duration: 16, dotted: 0, beats: 0.25 },
+            { duration: 32, dotted: 1, beats: 0.1875 },
+            { duration: 32, dotted: 0, beats: 0.125 },
+            { duration: 64, dotted: 0, beats: 0.0625 }
+        ];
+
         // Разрыв между элементами заполняем паузами: иначе стан окажется
         // короче пьесы и мелодия убежит вперёд
         function pushRest(beats) {
-            var fitted = fitTiming(beats, { duration: 4, dotted: 0, tuplet: null });
-            var rest = {
-                isRest: true,
-                noteName: null,
-                displayName: null,
-                duration: fitted ? fitted.duration : 4,
-                dotted: fitted ? fitted.dotted : 0,
-                currentVariant: 1,
-                // Настоящее время паузы: запись его может не выражать
-                beats: beats
-            };
-            if (fitted && fitted.tuplet) rest.tuplet = fitted.tuplet;
-            elements.push(rest);
-            cursor += beats;
-            lastNote = null;
+            var remaining = beats;
+            while (remaining > 0.01) {
+                var value = null;
+                for (var i = 0; i < REST_LADDER.length; i++) {
+                    if (REST_LADDER[i].beats <= remaining + 1e-6) { value = REST_LADDER[i]; break; }
+                }
+                // Остаток меньше самой мелкой паузы: пишем его с точным временем
+                if (!value) value = { duration: 64, dotted: 0, beats: 0 };
+
+                var rest = {
+                    isRest: true,
+                    noteName: null,
+                    displayName: null,
+                    duration: value.duration,
+                    dotted: value.dotted,
+                    currentVariant: 1,
+                    // Настоящее время паузы: запись его может не выражать
+                    beats: value.beats || remaining
+                };
+                elements.push(rest);
+                remaining -= rest.beats;
+                cursor += rest.beats;
+                lastNote = null;
+            }
         }
 
         line.forEach(function (item) {

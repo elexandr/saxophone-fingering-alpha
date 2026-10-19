@@ -3908,6 +3908,19 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 timeSignature: this.timeSignature,
                 barLineMode: this.barLineMode
             },
+            // Сопровождение живёт отдельно от стана, но пропадать при
+            // перезагрузке страницы не должно: сохраняем его и его настройки
+            accompaniment: (this.accompaniment || []).map(note => ({
+                midi: note.midi,
+                startBeat: note.startBeat,
+                beats: note.beats,
+                drum: !!note.drum,
+                trackIndex: note.trackIndex,
+                trackName: note.trackName
+            })),
+            accompanimentSettings: this.accompanimentSettings || {},
+            accompanimentVolume: this.accompanimentVolume,
+            accompanimentShift: this.accompanimentShift,
             timestamp: new Date().toISOString(),
             version: '1.5.0',
             range: 'C2 - F#6'
@@ -4664,6 +4677,25 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             // Сдвиги приходят из автосохранения. Раньше они применялись к звуку,
             // но не выводились в поля: получалось «в полях нули, а звучит сдвинуто».
             // Теперь после восстановления поля и подсветка пресетов синхронизируются
+            // applyMelody начинается с clearAllNotes, а тот сбрасывает
+            // сопровождение: возвращаем его обратно из сохранения
+            this.accompaniment = Array.isArray(data.accompaniment) ? data.accompaniment : [];
+            this.accompanimentSettings = data.accompanimentSettings || {};
+            this.accompanimentVolume = typeof data.accompanimentVolume === 'number'
+                ? data.accompanimentVolume : 1;
+            this.accompanimentShift = typeof data.accompanimentShift === 'number'
+                ? data.accompanimentShift : 0;
+            const accShiftField = document.getElementById('accompaniment-shift');
+            if (accShiftField) accShiftField.value = String(this.accompanimentShift);
+            const accVolumeField = document.getElementById('accompaniment-volume');
+            if (accVolumeField) accVolumeField.value = String(Math.round(this.accompanimentVolume * 100));
+            if (this.melodyPlayer) {
+                this.melodyPlayer.setAccompanimentVolume(this.accompanimentVolume);
+                this.melodyPlayer.setAccompanimentTranspose(
+                    this.accompanimentShift + this.allTransposeShift);
+            }
+            this.renderAccompanimentPanel();
+
             if (this.afterShiftChange) this.afterShiftChange();
             if (typeof this.syncPresetHighlight === 'function') this.syncPresetHighlight();
             if (typeof this.updateInstrumentExample === 'function') this.updateInstrumentExample();
