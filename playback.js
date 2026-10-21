@@ -516,6 +516,7 @@
         // ставим порциями, как и сопровождение: у длинной пьесы нот бывает
         // под тысячу, и постановка всех сразу занимает главный поток на
         // сотни миллисекунд - замерено 378 мс на 195 нотах
+        var beatCursor = 0;
         plan.forEach(function (item, index) {
             var element = item.element;
             timeline.push({
@@ -523,12 +524,16 @@
                 element: element,
                 startAt: cursor,
                 seconds: item.seconds,
+                // Доля от начала последовательности: по ней видно, откуда
+                // продолжать, если темп или звук меняют во время игры
+                beat: beatCursor,
                 // Связанная нота продолжает звук предыдущей: её не ударяем
                 skip: item.skip,
                 // Под лигой нота звучит всю длительность, без разрыва
                 joined: slurJoined[index] || (slurJoined[index - 1] && !element.slurEnd && index > 0)
             });
             // Время идёт по исходным длительностям: лига меняет звук, не такт
+            beatCursor += beatsOf(element);
             cursor += secondsFor(element, tempo);
         });
 
@@ -617,19 +622,23 @@
         return true;
     };
 
-    // Перепланировать остаток мелодии с новым сдвигом: звук меняется на лету.
-    // Текущая нота обрывается - это осознанная плата за смену звука во время игры
-    MelodyPlayer.prototype.replan = function (semitones) {
+    // Перепланировать остаток мелодии на лету: меняется сдвиг, темп или и то
+    // и другое. Текущая нота обрывается - это осознанная плата за то, что
+    // изменения слышны сразу, а не после остановки.
+    // Можно вызвать числом (только сдвиг) или объектом { semitones, tempo }.
+    MelodyPlayer.prototype.replan = function (changes) {
         if (!this.playing || !this.lastPlay) return false;
+
+        var semitones = typeof changes === 'number' ? changes : (changes && changes.semitones);
+        var tempo = (changes && typeof changes === 'object') ? Number(changes.tempo) || 0 : 0;
 
         // Сдвиг запоминаем в любом случае: иначе состояние плеера разойдётся
         // с настройками, и следующая смена снова вызовет перепланирование
-        this.setTranspose(semitones);
+        if (semitones !== undefined && semitones !== null) this.setTranspose(semitones);
 
         var rest = this.lastPlay.elements.slice(this.timelineIndex || 0);
         if (!rest.length) return false;
 
-        var tempo = this.lastPlay.tempo;
         var handlers = this.lastPlay.handlers;
         // Галочки звука могли переключить во время игры: переносим их текущее
         // состояние, иначе перепланирование вернуло бы старое
@@ -637,7 +646,15 @@
             muteMain: !!this.mainMuted,
             muteAccompaniment: !!this.accompanimentMuted
         });
-        this.play(rest, tempo, handlers, options);
+
+        // Сопровождение продолжает с текущего места, а не с начала пьесы
+        var step = this.timeline && this.timeline[this.timelineIndex || 0];
+        if (step && typeof step.beat === 'number') {
+            options.accompanimentFromBeat = (Number(options.accompanimentFromBeat) || 0) + step.beat;
+        }
+
+        var nextTempo = tempo > 0 ? tempo : this.lastPlay.tempo;
+        this.play(rest, nextTempo, handlers, options);
 
         return true;
     };

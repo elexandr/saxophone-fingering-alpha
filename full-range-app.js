@@ -4650,10 +4650,17 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     setTempo(value) {
         const parsed = parseInt(value, 10);
         const tempo = Math.min(240, Math.max(30, parsed || 80));
+        const changed = this.tempo !== tempo;
         this.tempo = tempo;
         
         const input = document.getElementById('tempo-input');
         if (input && parseInt(input.value, 10) !== tempo) input.value = tempo;
+
+        // Темп меняется сразу и во время игры: остаток мелодии ставится
+        // заново с новым темпом, сопровождение продолжает с текущего места
+        if (changed && this.melodyPlayer && this.melodyPlayer.playing) {
+            this.melodyPlayer.replan({ tempo: tempo });
+        }
         
         return tempo;
     }
