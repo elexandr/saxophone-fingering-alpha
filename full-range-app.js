@@ -59,6 +59,12 @@ class FullRangeStaffManager {
         this.keyFifths = 0; // тональность: сколько знаков при ключе
         this.accompaniment = []; // ноты сопровождения: играются, но не показываются
         this.accompanimentSettings = {}; // громкость и отключение по дорожкам
+        this.mainVolume = 1;             // громкость основной линии
+        this.mainMuted = false;          // кнопка отключения основной линии
+        this.accompanimentMuted = false; // кнопка отключения всего сопровождения
+        // Аудио-аккомпанемент: файл целиком вместо партий из MIDI/MusicXML
+        this.audioTrackBuffer = null;
+        this.audioTrackName = '';
         this.accompanimentVolume = 1;    // общая громкость сопровождения
         this.accompanimentShift = 0;     // сдвиг только сопровождения, полутонов
         this.allTransposeShift = 0;      // на сколько сдвинули все ноты кнопками «Все вверх/вниз»
@@ -74,6 +80,12 @@ class FullRangeStaffManager {
         this.displayMode = 'sharps'; // 'sharps' или 'flats'
         this.tempo = 80; // Темп воспроизведения, ударов в минуту
         this.loopPlayback = false;
+        this.loopRepeats = 20; // сколько раз играть по кругу
+        this.loopCount = 0;    // сколько кругов уже сыграно в этом проигрывании
+        this.loopCounterVisible = false; // счётчик кругов виден всё проигрывание
+        this.countInRunning = false;     // отсчёт уже идёт, второй запуск не нужен
+        this.fragmentStartId = null;     // первая нота разучиваемого фрагмента
+        this.fragmentEndId = null;       // последняя нота фрагмента
         // Метроном и отсчёт перед началом
         // Сдвиг звука приложения: насколько звук отличается от нот на стане.
         // Ноль - нота звучит как записана, сдвиги идут уже от загруженного
@@ -83,9 +95,9 @@ class FullRangeStaffManager {
         // Показывать звучащие ноты: включено - подписи звучащих нот,
         // выключено - написанные (истина тут у пианино)
         this.soundingNames = false;
-        this.metronome = false;
+        this.metronome = true; // по умолчанию щелчки включены
         this.metronomeVolume = 0.6;
-        this.countIn = false; // Играть по кругу
+        this.countIn = true; // отсчёт перед началом включён по умолчанию
         this.timeSignature = DEFAULT_TIME_SIGNATURE; // Размер такта
         this.barLineMode = 'auto'; // 'auto' - черты по размеру, 'manual' - вручную
         this.notationMarks = []; // Элементы тактовых черт и знаков репризы
@@ -277,21 +289,21 @@ class FullRangeStaffManager {
             loopCheckbox.addEventListener('change', (e) => {
                 this.setLoopPlayback(e.target.checked);
             });
+        }
 
-        
-document.getElementById('metronome-on').addEventListener('change', (e) => {
-        
-    staffManager.metronome = e.target.checked;
-        
-    staffManager.metronomeVolume = parseInt(document.getElementById('metronome-volume').value, 10) / 100;
-        
-    staffManager.melodyPlayer.setMetronomeVolume(staffManager.metronomeVolume);
-        
-    staffManager.scheduleAutosave();
-        
-});
+        // Сколько раз играть по кругу: поле активно только при включённом круге
+        const loopCountField = document.getElementById('loop-count');
+        if (loopCountField) {
+            loopCountField.value = String(this.loopRepeats);
+            loopCountField.disabled = !this.loopPlayback;
+            loopCountField.addEventListener('change', (e) => {
+                staffManager.setLoopRepeats(e.target.value);
+                staffManager.updateLoopCounter();
+                staffManager.scheduleAutosave();
+            });
+        }
 
-        
+        // Громкость метронома: включение и выключение - кнопка в блоке громкости
 document.getElementById('metronome-volume').addEventListener('input', (e) => {
         
     staffManager.metronomeVolume = parseInt(e.target.value, 10) / 100;
@@ -309,28 +321,30 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         
 });
 
-        // Галочки звука действуют сразу, в том числе во время игры: они меняют
-        // громкость готовых узлов, а не перепланируют ноты. Раньше «звук
-        // сопровождения» можно было снять, но не вернуть - ноты при снятии
-        // пропускались навсегда
-        const soundMain = document.getElementById('sound-main');
-        if (soundMain) {
-            soundMain.addEventListener('change', (e) => {
-                if (staffManager.melodyPlayer) staffManager.melodyPlayer.setMainMuted(!e.target.checked);
+        // Кнопки отключения в блоке громкости действуют сразу, в том числе во
+        // время игры: они меняют громкость готовых узлов, а не перепланируют ноты
+        const mainMute = document.getElementById('main-mute');
+        if (mainMute) mainMute.onclick = () => staffManager.toggleSound('main');
+
+        const accompanimentMute = document.getElementById('accompaniment-mute');
+        if (accompanimentMute) accompanimentMute.onclick = () => staffManager.toggleSound('accompaniment');
+
+        const metronomeMute = document.getElementById('metronome-mute');
+        if (metronomeMute) metronomeMute.onclick = () => staffManager.toggleSound('metronome');
+
+        // Блок громкости помнит, открыт он или закрыт
+        const volumePanel = document.getElementById('accompaniment-panel');
+        if (volumePanel) {
+            volumePanel.addEventListener('toggle', () => {
+                staffManager.volumePanelOpen = volumePanel.open;
+                staffManager.scheduleAutosave();
             });
         }
 
-        const soundAccompaniment = document.getElementById('sound-accompaniment');
-        if (soundAccompaniment) {
-            soundAccompaniment.addEventListener('change', (e) => {
-                if (staffManager.melodyPlayer) {
-                    staffManager.melodyPlayer.setAccompanimentMuted(!e.target.checked);
-                }
-            });
-        }
+        // Здесь ещё рано обращаться к staffManager: его создают после
+        // конструктора, поэтому работаем через this
+        this.applySoundButtons();
 
-        }
-        
         this.bindLanguageSwitch();
         this.bindModal('about-modal', 'btn-about');
         this.bindModal('help-modal', 'btn-help');
@@ -338,6 +352,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.updateLanguageButtons();
         this.updateBarLineButtons();
         this.updateNotationButtons();
+        this.updateFragmentButtons();
 
         // При выделении двух и более нот окошко длительности на ноте убираем:
         // длительность меняют кнопки в панели, а точки остаются точечной правкой
@@ -491,8 +506,287 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         if (checkbox && checkbox.checked !== this.loopPlayback) {
             checkbox.checked = this.loopPlayback;
         }
+
+        // Сколько раз играть по кругу: поле нужно только при включённом круге.
+        // Галочку можно поставить и во время игры - тогда счётчик появляется
+        // сразу, и следующий круг пойдёт по счёту
+        const countField = document.getElementById('loop-count');
+        if (countField) countField.disabled = !this.loopPlayback;
+        this.updateLoopCounter();
         
         if (!silent) this.scheduleAutosave();
+    }
+
+    // Сколько раз играть по кругу. По умолчанию 20, выбранное запоминается
+    setLoopRepeats(value) {
+        const parsed = parseInt(value, 10);
+        // Пустое поле или мусор - возвращаемся к 20, число зажимаем в 1..999
+        const repeats = Number.isFinite(parsed) ? Math.min(999, Math.max(1, parsed)) : 20;
+        this.loopRepeats = repeats;
+
+        const field = document.getElementById('loop-count');
+        if (field && parseInt(field.value, 10) !== repeats) field.value = repeats;
+
+        return repeats;
+    }
+
+    // Включение метронома одним вызовом: кнопка, проверки, восстановление
+    // настроек. Во время игры щелчки начинаются с текущей доли
+    setMetronome(enabled) {
+        this.metronome = !!enabled;
+        if (this.melodyPlayer) this.melodyPlayer.setMetronomeLive(this.metronome);
+        this.applySoundButtons();
+        return this.metronome;
+    }
+
+    // Кнопки отключения в блоке громкости: основная линия, всё сопровождение
+    // и метроном. Работают сразу, в том числе во время игры
+    toggleSound(kind) {
+        if (kind === 'main') {
+            this.mainMuted = !this.mainMuted;
+            if (this.melodyPlayer) this.melodyPlayer.setMainMuted(this.mainMuted);
+        } else if (kind === 'accompaniment') {
+            this.accompanimentMuted = !this.accompanimentMuted;
+            if (this.melodyPlayer) this.melodyPlayer.setAccompanimentMuted(this.accompanimentMuted);
+        } else if (kind === 'metronome') {
+            // Включили во время игры - метроном начинает отсчитывать с текущей
+            // доли, а не только со следующего запуска
+            this.setMetronome(!this.metronome);
+        }
+
+        this.applySoundButtons();
+        this.scheduleAutosave();
+    }
+
+    // Вид кнопок: значок и подсказка показывают, звучит линия или выключена
+    applySoundButtons() {
+        const paint = (id, muted) => {
+            const button = document.getElementById(id);
+            if (!button) return;
+            button.setAttribute('aria-pressed', muted ? 'true' : 'false');
+            button.classList.toggle('muted', !!muted);
+            const icon = button.querySelector('i');
+            if (icon) icon.className = muted ? 'fas fa-volume-xmark' : 'fas fa-volume-high';
+            button.title = muted ? t('setting.unmute.hint') : t('setting.mute.hint');
+        };
+
+        paint('main-mute', this.mainMuted);
+        paint('accompaniment-mute', this.accompanimentMuted);
+        // Метроном по умолчанию выключен, поэтому кнопка показывает выключенный вид
+        paint('metronome-mute', !this.metronome);
+    }
+
+    // Состояние кнопок из сохранения: громкость и отключения
+    applyVolumeState(settings) {
+        if (settings.mainMuted !== undefined) this.mainMuted = !!settings.mainMuted;
+        if (settings.accompanimentMuted !== undefined) this.accompanimentMuted = !!settings.accompanimentMuted;
+        if (this.melodyPlayer) {
+            this.melodyPlayer.setMainMuted(this.mainMuted);
+            this.melodyPlayer.setAccompanimentMuted(this.accompanimentMuted);
+            this.melodyPlayer.setMetronomeLive(this.metronome);
+        }
+        this.applySoundButtons();
+    }
+
+    // === Фрагмент для разучивания ===
+    // Отмечаются две ноты: первая и последняя. Играется только этот участок,
+    // а «по кругу» повторяет его так же, как повторяло бы всю мелодию.
+    // Храним идентификаторы нот: правка мелодии вокруг фрагмент не сдвигает
+
+    hasFragment() {
+        return !!(this.fragmentStartId && this.fragmentEndId);
+    }
+
+    // Номера отмеченных нот в мелодии: нужны для сохранения
+    fragmentIndices() {
+        if (!this.hasFragment()) return null;
+        const start = this.notes.findIndex(note => note.id === this.fragmentStartId);
+        const end = this.notes.findIndex(note => note.id === this.fragmentEndId);
+        if (start < 0 || end < 0) return null;
+        return { start: Math.min(start, end), end: Math.max(start, end) };
+    }
+
+    // Границы фрагмента в порядке воспроизведения: от первой отмеченной ноты
+    // до последней. При репризе элемент встречается дважды, поэтому конец
+    // ищем после начала
+    fragmentBounds(sequence) {
+        if (!this.hasFragment()) return null;
+
+        const startNote = this.notes.find(note => note.id === this.fragmentStartId);
+        const endNote = this.notes.find(note => note.id === this.fragmentEndId);
+        if (!startNote || !endNote) return null;
+
+        const start = sequence.indexOf(startNote);
+        if (start < 0) return null;
+
+        for (let i = start; i < sequence.length; i++) {
+            if (sequence[i] === endNote) return { start: start, end: i };
+        }
+        return null;
+    }
+
+    setFragmentStart(noteId) {
+        const note = this.notes.find(item => item.id === (noteId || this.selectedNoteId));
+        if (!note) {
+            this.updateStatus(t('status.fragmentNeedNote'));
+            return false;
+        }
+
+        // Начало оказалось после конца: границы меняются местами, чтобы
+        // фрагмент остался нормальным - от ранней ноты до поздней
+        const previousEndId = this.fragmentEndId;
+        const noteIndex = this.notes.indexOf(note);
+        const endIndex = this.notes.findIndex(item => item.id === previousEndId);
+
+        if (previousEndId && endIndex >= 0 && noteIndex > endIndex) {
+            this.fragmentStartId = previousEndId;
+            this.fragmentEndId = note.id;
+        } else {
+            this.fragmentStartId = note.id;
+        }
+
+        this.afterFragmentChange();
+        return true;
+    }
+
+    setFragmentEnd(noteId) {
+        const note = this.notes.find(item => item.id === (noteId || this.selectedNoteId));
+        if (!note) {
+            this.updateStatus(t('status.fragmentNeedNote'));
+            return false;
+        }
+
+        // Конец оказался раньше начала: границы меняются местами
+        const previousStartId = this.fragmentStartId;
+        const noteIndex = this.notes.indexOf(note);
+        const startIndex = this.notes.findIndex(item => item.id === previousStartId);
+
+        this.fragmentEndId = note.id;
+        if (previousStartId && startIndex >= 0 && startIndex > noteIndex) {
+            this.fragmentStartId = note.id;
+            this.fragmentEndId = previousStartId;
+        }
+
+        this.afterFragmentChange();
+        return true;
+    }
+
+    clearFragment(silent = false) {
+        this.fragmentStartId = null;
+        this.fragmentEndId = null;
+        this.afterFragmentChange(silent);
+    }
+
+    afterFragmentChange(silent = false) {
+        this.updateFragmentInfo();
+        this.updateFragmentButtons();
+        this.applyFragmentMarks();
+
+        if (silent) return;
+
+        const bounds = this.fragmentIndices();
+        if (!bounds) {
+            this.updateStatus(t('status.fragmentCleared'));
+        } else {
+            // Фрагмент нужен, чтобы играть его много раз, поэтому круг
+            // включаем сразу: снять его можно обычной галочкой
+            if (!this.loopPlayback) this.setLoopPlayback(true);
+            this.updateStatus(t('status.fragmentSet', { from: bounds.start + 1, to: bounds.end + 1 }));
+        }
+        this.scheduleAutosave();
+    }
+
+    // Кнопки фрагмента: отмечать можно только выделенную ноту
+    updateFragmentButtons() {
+        const hasSelection = !!this.notes.find(note => note.id === this.selectedNoteId);
+
+        const startButton = document.getElementById('btn-fragment-start');
+        if (startButton) startButton.disabled = !hasSelection;
+
+        const endButton = document.getElementById('btn-fragment-end');
+        if (endButton) endButton.disabled = !hasSelection;
+
+        const clearButton = document.getElementById('btn-fragment-clear');
+        if (clearButton) clearButton.disabled = !this.hasFragment();
+    }
+
+    // Строка «Фрагмент: ноты 5–12 · 8» в панели
+    updateFragmentInfo() {
+        const info = document.getElementById('fragment-info');
+        if (!info) return;
+
+        // Отмеченные ноты могли удалить - тогда фрагмента больше нет
+        if (this.hasFragment() && !this.fragmentIndices()) {
+            this.fragmentStartId = null;
+            this.fragmentEndId = null;
+        }
+
+        const bounds = this.fragmentIndices();
+        if (!bounds) {
+            info.hidden = true;
+            info.textContent = '';
+            return;
+        }
+
+        info.hidden = false;
+        info.textContent = t('fragment.info', {
+            from: bounds.start + 1,
+            to: bounds.end + 1,
+            count: bounds.end - bounds.start + 1
+        });
+    }
+
+    // Метки на стане: видно, откуда и докуда повторяется фрагмент
+    applyFragmentMarks() {
+        document.querySelectorAll('.note-anchor.fragment-start, .note-anchor.fragment-end, .note-anchor.in-fragment')
+            .forEach(node => node.classList.remove('fragment-start', 'fragment-end', 'in-fragment'));
+
+        const bounds = this.fragmentIndices();
+        if (!bounds) return;
+
+        for (let i = bounds.start; i <= bounds.end; i++) {
+            const note = this.notes[i];
+            const node = note && document.getElementById(note.id);
+            if (!node) continue;
+            node.classList.add('in-fragment');
+            if (i === bounds.start) node.classList.add('fragment-start');
+            if (i === bounds.end) node.classList.add('fragment-end');
+        }
+    }
+
+    // Счётчик повторов: виден во время игры по кругу, после остановки гаснет
+    updateLoopCounter(done = false) {
+        const counter = document.getElementById('loop-counter');
+        if (!counter) return;
+
+        // Видимость счётчика зависит от того, идёт ли проигрывание по кругу,
+        // а не от «звучит ли нота сейчас»: в паузе между кругами и во время
+        // отсчёта плеер уже не играет, а счётчик как раз и нужен
+        if (done || !this.loopPlayback || !this.loopCounterVisible) {
+            counter.hidden = true;
+            counter.textContent = '';
+            return;
+        }
+
+        const total = this.loopRepeats || 20;
+        const current = Math.min(total, (this.loopCount || 0) + 1);
+        const left = Math.max(0, total - (this.loopCount || 0));
+
+        counter.hidden = false;
+        counter.innerHTML = '';
+
+        // Крупно - какой повтор идёт (или пойдёт сразу после паузы),
+        // мелко - сколько кругов ещё осталось
+        const main = document.createElement('span');
+        main.className = 'loop-counter-main';
+        main.textContent = t('status.loopRepeat', { n: current, total: total });
+
+        const rest = document.createElement('span');
+        rest.className = 'loop-counter-left';
+        rest.textContent = t('status.loopLeft', { n: Math.max(0, left - 1) });
+
+        counter.appendChild(main);
+        counter.appendChild(rest);
     }
     
     // === Строки стана ===
@@ -1006,6 +1300,14 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 return;
             }
             this.rangeMode = false;
+            // Во время игры клик по ноте переносит проигрывание сюда и не
+            // выделяет ноту: так удобно перескочить на нужное место на слух
+            if (this.melodyPlayer && this.melodyPlayer.playing &&
+                !e.ctrlKey && !e.metaKey && !e.shiftKey &&
+                typeof this.playFromElement === 'function') {
+                this.playFromElement(element);
+                return;
+            }
             // Shift - диапазон, Ctrl - добавить или убрать одну ноту
             this.selectNote(element.id, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey });
             // По клику слышно высоту ноты. Именно по клику, а не при выделении:
@@ -1243,6 +1545,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.updateNoteCount();
         this.updateAllFingerings();
         this.updateFileButtons();
+        this.applyFragmentMarks();
+        this.updateFragmentInfo();
+        this.updateFragmentButtons();
     }
     
     // На пустом стане сохранять нечего, поэтому кнопки сохранения гаснут
@@ -1326,6 +1631,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // Кнопки тактовых черт и репризы зависят от выделения
         this.updateBarLineButtons();
         this.updateNotationButtons();
+        // Отметки фрагмента ставятся на выделенную ноту
+        this.updateFragmentButtons();
 
         // При выделении двух и более нот окошко длительности на ноте убираем:
         // длительность меняют кнопки в панели, а точки остаются точечной правкой
@@ -1367,6 +1674,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.clearFingering();
         this.updateBarLineButtons();
         this.updateNotationButtons();
+        this.updateFragmentButtons();
 
         // При выделении двух и более нот окошко длительности на ноте убираем:
         // длительность меняют кнопки в панели, а точки остаются точечной правкой
@@ -1747,20 +2055,30 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     // Короткое звучание одной ноты: при постановке, клике и смене высоты,
     // чтобы сразу слышать, что получается. Во время проигрывания молчим,
     // а при массовой загрузке мелодии - тем более: там нот десятки.
-    // Отсчёт перед началом: три секунды с крупными цифрами по центру.
-    // Щелчки идут, только если включён метроном
-    runCountIn(callback) {
+    // Отсчёт перед началом: ровно один такт в темпе метронома.
+    // В 4/4 это 4-3-2-1, в 3/4 - 3-2-1, в 2/4 - 2-1: первое число совпадает
+    // с началом такта, дальше идут его доли, и после последней начинается игра.
+    // Щелчки идут, только если включён метроном.
+    // startElement - с какой ноты пойдёт игра: при повторе это начало круга
+    runCountIn(callback, startElement) {
         const overlay = document.getElementById('count-in');
-        const steps = 3;
+        const steps = this.countInSteps();
+        const beatSeconds = this.countInBeatSeconds();
+
+        // Прежний отсчёт снимаем: два таймера запустили бы игру дважды,
+        // и мелодия зацикливалась бы на первой ноте
+        this.clearCountIn();
+        this.countInRunning = true;
 
         // Экран переводим сразу: за время отсчёта видно, откуда пойдёт игра
-        this.followPlayback(this.notes[0], { instant: true });
+        this.followPlayback(startElement || this.notes[0], { instant: true });
 
         if (this.metronome && this.melodyPlayer) {
-            this.melodyPlayer.countInClicks(steps, 1);
+            this.melodyPlayer.countInClicks(steps, beatSeconds, true);
         }
 
         if (!overlay) {
+            this.clearCountIn();
             callback();
             return;
         }
@@ -1779,7 +2097,19 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             }
 
             overlay.textContent = left;
-        }, 1000);
+        }, Math.round(beatSeconds * 1000));
+    }
+
+    // Сколько счётов в отсчёте: целое число долей в такте. В 6/8 метроном
+    // щёлкает четвертями, поэтому и отсчёт идёт по ним же
+    countInSteps() {
+        return Math.max(1, Math.round(this.measureBeats()));
+    }
+
+    // Длина одной доли отсчёта: ровно как у метронома, от темпа
+    countInBeatSeconds() {
+        const tempo = this.tempo > 0 ? this.tempo : 80;
+        return 60 / tempo;
     }
 
     // Снять отсчёт: и таймер, и цифры
@@ -1788,6 +2118,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             clearInterval(this.countInTimer);
             this.countInTimer = null;
         }
+
+        this.countInRunning = false;
 
         const overlay = document.getElementById('count-in');
         if (overlay) {
@@ -3897,6 +4229,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 showNoteNames: this.showNoteNames,
                 showFingerings: this.showFingerings,
                 loopPlayback: this.loopPlayback,
+                loopRepeats: this.loopRepeats,
                 metronome: this.metronome,
                 metronomeVolume: this.metronomeVolume,
                 appSoundShift: this.appSoundShift,
@@ -3919,6 +4252,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 trackName: note.trackName
             })),
             accompanimentSettings: this.accompanimentSettings || {},
+            mainMuted: this.mainMuted,
+            accompanimentMuted: this.accompanimentMuted,
+            volumePanelOpen: this.volumePanelOpen,
+            fragment: this.fragmentIndices(),
+            mainVolume: this.mainVolume,
             accompanimentVolume: this.accompanimentVolume,
             accompanimentShift: this.accompanimentShift,
             timestamp: new Date().toISOString(),
@@ -3949,6 +4287,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     // Восстановление мелодии из сохранённых данных. Понимает и новый формат (elements),
     // и старый (notes) - чтобы ранее сохранённые мелодии не потерялись.
     applyMelody(data) {
+        // Новая мелодия - новое сопровождение: аудио-файл прежней пьесы
+        // к ней не подходит и только мешал бы
+        if (this.audioTrackBuffer) this.applyAudioTrack(null, '');
+
         // Загрузка из файла заменяет мелодию целиком - это как открытие
         // документа. История отката начинается заново: иначе первый же откат
         // вернул бы прежнюю мелодию, а выглядит это как пропажа всех нот.
@@ -4177,6 +4519,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 showNoteNames: this.showNoteNames,
                 showFingerings: this.showFingerings,
                 loopPlayback: this.loopPlayback,
+                loopRepeats: this.loopRepeats,
                 metronome: this.metronome,
                 metronomeVolume: this.metronomeVolume,
                 appSoundShift: this.appSoundShift,
@@ -4306,6 +4649,29 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         
         if (settings.loopPlayback !== undefined) {
             this.setLoopPlayback(settings.loopPlayback, true);
+        }
+
+        if (settings.loopRepeats !== undefined) {
+            this.setLoopRepeats(settings.loopRepeats);
+        }
+
+        // Метроном и отсчёт сохраняются вместе с остальными настройками:
+        // после обновления страницы они остаются такими, как их оставили
+        if (settings.countIn !== undefined) {
+            this.countIn = !!settings.countIn;
+            const countInBox = document.getElementById('count-in-on');
+            if (countInBox) countInBox.checked = this.countIn;
+        }
+
+        if (settings.metronome !== undefined) {
+            this.setMetronome(!!settings.metronome);
+        }
+
+        if (settings.metronomeVolume !== undefined) {
+            this.metronomeVolume = Math.max(0, Math.min(1, Number(settings.metronomeVolume) || 0));
+            const metronomeSlider = document.getElementById('metronome-volume');
+            if (metronomeSlider) metronomeSlider.value = String(Math.round(this.metronomeVolume * 100));
+            if (this.melodyPlayer) this.melodyPlayer.setMetronomeVolume(this.metronomeVolume);
         }
         
         if (settings.displayMode) {
@@ -4502,6 +4868,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const panel = document.getElementById('accompaniment-panel');
         const list = document.getElementById('accompaniment-tracks');
         const master = document.getElementById('accompaniment-volume');
+        const row = document.getElementById('accompaniment-row');
         if (!panel || !list) return;
 
         const names = {};
@@ -4512,7 +4879,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         });
         const keys = Object.keys(names);
 
-        panel.hidden = keys.length === 0;
+        // Панель громкости видна всегда: мелодия и метроном нужны и без
+        // сопровождения. Строку сопровождения и её дорожки показываем только
+        // тогда, когда сопровождение в файле есть
+        panel.hidden = false;
+        if (row) row.hidden = keys.length === 0;
+        list.hidden = keys.length === 0;
         if (master) master.value = String(Math.round(this.accompanimentVolume * 100));
         list.innerHTML = '';
 
@@ -4520,8 +4892,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             if (!this.accompanimentSettings[key]) this.accompanimentSettings[key] = { volume: 1, muted: false };
             const settings = this.accompanimentSettings[key];
 
-            const row = document.createElement('div');
-            row.className = 'accompaniment-track';
+            const trackRow = document.createElement('div');
+            trackRow.className = settings.muted ? 'accompaniment-track muted' : 'accompaniment-track';
 
             const toggle = document.createElement('input');
             toggle.type = 'checkbox';
@@ -4529,6 +4901,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             toggle.title = t('setting.soundAccompaniment.hint');
             toggle.addEventListener('change', () => {
                 settings.muted = !toggle.checked;
+                // Выключенная дорожка сереет вместе со своим ползунком
+                trackRow.classList.toggle('muted', settings.muted);
                 if (this.melodyPlayer) this.melodyPlayer.setTrackMuted(key, settings.muted);
             });
 
@@ -4546,10 +4920,138 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 if (this.melodyPlayer) this.melodyPlayer.setTrackVolume(key, settings.volume);
             });
 
-            row.appendChild(toggle);
-            row.appendChild(label);
-            row.appendChild(volume);
-            list.appendChild(row);
+            trackRow.appendChild(toggle);
+            trackRow.appendChild(label);
+            trackRow.appendChild(volume);
+            list.appendChild(trackRow);
+        });
+    }
+
+    // === Аудио-аккомпанемент ===
+    // Берём музыкальный файл (mp3, wav, ogg) и играем его вместе с мелодией.
+    // Своей сетки у файла нет, поэтому темп подгоняем по его длине
+
+    hasAudioTrack() {
+        return !!this.audioTrackBuffer;
+    }
+
+    // Сколько долей в мелодии: по ним считаем темп под длину файла
+    melodyBeatsTotal() {
+        return this.notes.reduce((sum, element) => sum + Playback.beatsOf(element), 0);
+    }
+
+    // Темп, при котором мелодия и файл кончаются вместе
+    audioTempo() {
+        if (!this.hasAudioTrack() || !this.audioTrackBuffer.duration) return 0;
+        const beats = this.melodyBeatsTotal();
+        if (beats <= 0) return 0;
+        const tempo = Math.round(beats * 60 / this.audioTrackBuffer.duration);
+        return Math.min(240, Math.max(30, tempo));
+    }
+
+    // Поставить дорожку: сюда приходит уже расшифрованный звук
+    applyAudioTrack(buffer, name) {
+        this.audioTrackBuffer = buffer || null;
+        this.audioTrackName = name || '';
+
+        if (this.melodyPlayer) {
+            this.melodyPlayer.setAudioTrack(this.audioTrackBuffer, this.audioTrackName);
+        }
+
+        this.renderAudioAccompaniment();
+        this.renderAccompanimentPanel();
+
+        if (!buffer) {
+            this.updateStatus(t('status.audioCleared'));
+            return false;
+        }
+
+        // Темп подгоняем сразу: иначе мелодия и файл разъедутся
+        const tempo = this.audioTempo();
+        if (tempo) {
+            this.setTempo(tempo);
+            const field = document.getElementById('tempo-input');
+            if (field) field.value = String(tempo);
+        }
+
+        this.updateStatus(t('status.audioLoaded', {
+            name: this.audioTrackName,
+            tempo: tempo || this.tempo
+        }));
+        return true;
+    }
+
+    clearAudioTrack() {
+        if (!this.hasAudioTrack()) return false;
+        this.applyAudioTrack(null, '');
+        return true;
+    }
+
+    // Подогнать темп заново: пригодится, если мелодию поправили после загрузки
+    matchTempoToAudio() {
+        if (!this.hasAudioTrack()) {
+            this.updateStatus(t('status.audioNeedFile'));
+            return false;
+        }
+
+        const tempo = this.audioTempo();
+        if (!tempo) return false;
+
+        this.setTempo(tempo);
+        const field = document.getElementById('tempo-input');
+        if (field) field.value = String(tempo);
+        this.renderAudioAccompaniment();
+        this.updateStatus(t('status.audioTempo', { tempo: tempo }));
+        return true;
+    }
+
+    // Строка с названием файла, длительностью и темпом
+    renderAudioAccompaniment() {
+        const row = document.getElementById('audio-row');
+        const nameNode = document.getElementById('audio-name');
+        const clearButton = document.getElementById('btn-audio-clear');
+        const tempoButton = document.getElementById('btn-audio-tempo');
+        if (!row) return;
+
+        const hasTrack = this.hasAudioTrack();
+        row.hidden = !hasTrack;
+
+        if (clearButton) clearButton.disabled = !hasTrack;
+        if (tempoButton) tempoButton.disabled = !hasTrack;
+        if (!hasTrack) {
+            if (nameNode) nameNode.textContent = '';
+            return;
+        }
+
+        if (nameNode) {
+            nameNode.textContent = t('audio.info', {
+                name: this.audioTrackName,
+                seconds: Math.round(this.audioTrackBuffer.duration),
+                tempo: this.audioTempo()
+            });
+        }
+    }
+
+    // Чтение файла: расшифровка звука асинхронная
+    loadAudioTrackFile(file) {
+        if (!file) return Promise.resolve(false);
+
+        const player = this.melodyPlayer;
+        const ctx = player.ensureContext();
+        if (!ctx || typeof ctx.decodeAudioData !== 'function') {
+            this.updateStatus(t('status.noAudio'));
+            return Promise.resolve(false);
+        }
+
+        return file.arrayBuffer().then(buffer => new Promise((resolve, reject) => {
+            const promise = ctx.decodeAudioData(buffer, resolve, reject);
+            if (promise && typeof promise.then === 'function') promise.then(resolve, reject);
+        })).then(audioBuffer => {
+            this.applyAudioTrack(audioBuffer, file.name);
+            return true;
+        }).catch(error => {
+            this.updateStatus(t('status.audioFailed', { message: error && error.message || error }));
+            return false;
         });
     }
 
@@ -4564,6 +5066,18 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 if (staffManager.melodyPlayer) {
                     staffManager.melodyPlayer.setAccompanimentVolume(staffManager.accompanimentVolume);
                 }
+            };
+        }
+        // Громкость основной линии: доступна всегда, сопровождения может и не быть
+        const mainVolume = document.getElementById('main-volume');
+        if (mainVolume) {
+            mainVolume.value = String(Math.round(staffManager.mainVolume * 100));
+            mainVolume.oninput = () => {
+                staffManager.mainVolume = Number(mainVolume.value) / 100;
+                if (staffManager.melodyPlayer) {
+                    staffManager.melodyPlayer.setMainVolume(staffManager.mainVolume);
+                }
+                staffManager.scheduleAutosave();
             };
         }
         // Сдвиг только сопровождения: общий сдвиг двигает и его тоже
@@ -4688,15 +5202,42 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             // сопровождение: возвращаем его обратно из сохранения
             this.accompaniment = Array.isArray(data.accompaniment) ? data.accompaniment : [];
             this.accompanimentSettings = data.accompanimentSettings || {};
+            // Фрагмент хранится номерами нот: после восстановления
+            // у элементов новые идентификаторы, и номера снова дают отметки
+            const savedFragment = data.fragment;
+            if (savedFragment && Number.isInteger(savedFragment.start) && Number.isInteger(savedFragment.end)) {
+                const startNote = this.notes[savedFragment.start];
+                const endNote = this.notes[savedFragment.end];
+                this.fragmentStartId = startNote ? startNote.id : null;
+                this.fragmentEndId = endNote ? endNote.id : null;
+            } else {
+                this.fragmentStartId = null;
+                this.fragmentEndId = null;
+            }
+            this.updateFragmentInfo();
+            this.updateFragmentButtons();
+            this.applyFragmentMarks();
+            this.mainVolume = typeof data.mainVolume === 'number' ? data.mainVolume : 1;
+            this.mainMuted = !!data.mainMuted;
+            this.accompanimentMuted = !!data.accompanimentMuted;
+            // Блок громкости открыт или закрыт - так, как его оставили
+            if (data.volumePanelOpen !== undefined) {
+                const volumePanel = document.getElementById('accompaniment-panel');
+                if (volumePanel) volumePanel.open = !!data.volumePanelOpen;
+            }
+            this.applySoundButtons();
             this.accompanimentVolume = typeof data.accompanimentVolume === 'number'
                 ? data.accompanimentVolume : 1;
             this.accompanimentShift = typeof data.accompanimentShift === 'number'
                 ? data.accompanimentShift : 0;
+            const mainVolumeField = document.getElementById('main-volume');
+            if (mainVolumeField) mainVolumeField.value = String(Math.round(this.mainVolume * 100));
             const accShiftField = document.getElementById('accompaniment-shift');
             if (accShiftField) accShiftField.value = String(this.accompanimentShift);
             const accVolumeField = document.getElementById('accompaniment-volume');
             if (accVolumeField) accVolumeField.value = String(Math.round(this.accompanimentVolume * 100));
             if (this.melodyPlayer) {
+                this.melodyPlayer.setMainVolume(this.mainVolume);
                 this.melodyPlayer.setAccompanimentVolume(this.accompanimentVolume);
                 this.melodyPlayer.setAccompanimentTranspose(
                     this.accompanimentShift + this.allTransposeShift);
@@ -5423,27 +5964,111 @@ document.addEventListener('DOMContentLoaded', () => {
     
     document.getElementById('btn-play').addEventListener('click', playMelody);
     document.getElementById('btn-stop').addEventListener('click', stopMelody);
+
+    // Аудио-аккомпанемент: выбираем музыкальный файл и играем его с мелодией
+    const audioButton = document.getElementById('btn-audio-accompaniment');
+    const audioInput = document.getElementById('audio-input');
+    if (audioButton && audioInput) {
+        audioButton.addEventListener('click', () => audioInput.click());
+        audioInput.addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            staffManager.loadAudioTrackFile(file);
+            e.target.value = '';
+        });
+    }
+
+    const audioClearButton = document.getElementById('btn-audio-clear');
+    if (audioClearButton) {
+        audioClearButton.addEventListener('click', () => staffManager.clearAudioTrack());
+    }
+
+    const audioTempoButton = document.getElementById('btn-audio-tempo');
+    if (audioTempoButton) {
+        audioTempoButton.addEventListener('click', () => staffManager.matchTempoToAudio());
+    }
+
+    // Фрагмент для разучивания: отмечаем выделенную ноту началом или концом
+    const fragmentStartButton = document.getElementById('btn-fragment-start');
+    if (fragmentStartButton) {
+        fragmentStartButton.addEventListener('click', () => staffManager.setFragmentStart());
+    }
+
+    const fragmentEndButton = document.getElementById('btn-fragment-end');
+    if (fragmentEndButton) {
+        fragmentEndButton.addEventListener('click', () => staffManager.setFragmentEnd());
+    }
+
+    const fragmentClearButton = document.getElementById('btn-fragment-clear');
+    if (fragmentClearButton) {
+        fragmentClearButton.addEventListener('click', () => staffManager.clearFragment());
+    }
+
+    staffManager.updateFragmentButtons();
+
+    // Клик по ноте во время игры переносит проигрывание на это место.
+    // Выделение при этом не ставится: пользователь слушает, а не правит
+    staffManager.playFromElement = function (element) {
+        playMelody(element);
+    };
+
+    // Стрелка влево или вправо во время игры перескакивает на соседнюю ноту
+    // и продолжает звук с неё. Возвращает true, если переход сделан
+    staffManager.seekBy = function (step) {
+        const player = staffManager.melodyPlayer;
+        if (!player || !player.playing || !player.timeline) return false;
+
+        const fullSequence = Playback.buildSequence(staffManager.notes);
+        if (!fullSequence.length) return false;
+
+        // Номер звучащей ноты: где начали плюс сколько уже прошли
+        const current = (Number(staffManager.playStartIndex) || 0) + (player.timelineIndex || 0);
+        const target = current + step;
+        if (target < 0 || target >= fullSequence.length) return false;
+
+        playMelody(null, target);
+        return true;
+    };
     
     function setPlayingState(playing) {
         document.getElementById('btn-play').disabled = playing;
         document.getElementById('btn-stop').disabled = !playing;
     }
     
-    function playMelody() {
+    // fromElement - играть с этой ноты (клик по ноте во время игры).
+    // fromIndex - играть с этого места в порядке воспроизведения (стрелки).
+    // Без них начинаем с выделенной ноты или с начала
+    function playMelody(fromElement, fromIndex) {
         if (staffManager.notes.length === 0) {
             staffManager.updateStatus(t('status.addNotesFirst'));
             return;
         }
-        
+
+        // Отсчёт уже идёт - второй запуск не нужен: два таймера начнут игру
+        // дважды, и мелодия будет зацикливаться на первой ноте
+        if (staffManager.countInRunning) return;
+
         // Порядок воспроизведения учитывает репризу: участок играется дважды
         const fullSequence = Playback.buildSequence(staffManager.notes);
         const repeats = Playback.computeRepeatPairs(staffManager.notes).length;
         const repeatText = repeats ? t('status.playingRepeat', { n: repeats }) : '';
         
-        // Если нота выделена, начинаем с неё
-        const fromIndex = selectedStartIndex(fullSequence);
-        const sequence = fromIndex > 0 ? fullSequence.slice(fromIndex) : fullSequence;
-        const fromText = fromIndex > 0 ? t('status.playingFrom') : '';
+        // Отмеченный фрагмент важнее выделенной ноты: играем только его
+        const fragment = staffManager.fragmentBounds(fullSequence);
+        const startIndex = fragment
+            ? fragment.start
+            : (typeof fromIndex === 'number'
+                ? Math.max(0, Math.min(fullSequence.length - 1, fromIndex))
+                : (fromElement
+                    ? Math.max(0, fullSequence.indexOf(fromElement))
+                    : selectedStartIndex(fullSequence)));
+        // Запоминаем, откуда пошло проигрывание: по этому числу стрелки
+        // считают, какая нота звучит сейчас, и перескакивают на соседнюю
+        staffManager.playStartIndex = startIndex;
+        // Фрагмент режется по последней отмеченной ноте, обычный запуск - до конца
+        const sequence = fragment
+            ? fullSequence.slice(fragment.start, fragment.end + 1)
+            : (startIndex > 0 ? fullSequence.slice(startIndex) : fullSequence);
+        const fromText = startIndex > 0 ? t('status.playingFrom') : '';
         
         function start(isRepeat) {
             // Своё озвучивание отдельных нот гасим: иначе оно наложится
@@ -5465,22 +6090,34 @@ document.addEventListener('DOMContentLoaded', () => {
             // «звук основной» и «звук сопровождения» ни на что не влияли
             // С какой доли начинаем: сопровождение стартует с того же места
             let accompanimentFromBeat = 0;
-            if (fromIndex > 0) {
-                for (let i = 0; i < fromIndex; i++) {
+            if (startIndex > 0) {
+                for (let i = 0; i < startIndex; i++) {
                     const element = fullSequence[i];
                     accompanimentFromBeat += Playback.beatsOf(element);
                 }
             }
 
             const playOptions = isRepeat
-                ? { leadIn: LOOP_PAUSE_SECONDS, tailMs: 0, metronome: staffManager.metronome, beatsPerBar: staffManager.measureBeats() }
+                ? {
+                    // После отсчёта длиной в такт ждать ещё две секунды не нужно:
+                    // небольшой запас остаётся только на постановку нот
+                    leadIn: staffManager.countIn ? 0.05 : LOOP_PAUSE_SECONDS,
+                    tailMs: 0,
+                    metronome: staffManager.metronome,
+                    beatsPerBar: staffManager.measureBeats()
+                }
                 : { metronome: staffManager.metronome, beatsPerBar: staffManager.measureBeats() };
-            playOptions.accompaniment = staffManager.accompaniment || [];
+            // Аудио-файл заменяет партии: два сопровождения сразу не нужны
+            const hasAudio = !!staffManager.audioTrackBuffer;
+            playOptions.accompaniment = hasAudio ? [] : (staffManager.accompaniment || []);
+            playOptions.audioTrack = staffManager.audioTrackBuffer;
+            playOptions.audioTrackName = staffManager.audioTrackName;
             playOptions.accompanimentFromBeat = accompanimentFromBeat;
             playOptions.accompanimentTracks = staffManager.accompanimentSettings;
             playOptions.accompanimentVolume = staffManager.accompanimentVolume;
-            playOptions.muteMain = !((document.getElementById('sound-main') || { checked: true }).checked);
-            playOptions.muteAccompaniment = !!(document.getElementById('sound-accompaniment') && !document.getElementById('sound-accompaniment').checked);
+            playOptions.mainVolume = staffManager.mainVolume;
+            playOptions.muteMain = !!staffManager.mainMuted;
+            playOptions.muteAccompaniment = !!staffManager.accompanimentMuted;
 
             const started = staffManager.melodyPlayer.play(sequence, staffManager.tempo, {
                 onElement: (index, element) => {
@@ -5488,28 +6125,62 @@ document.addEventListener('DOMContentLoaded', () => {
                     staffManager.followPlayback(element);
                 },
                 onEnd: () => {
-                    // По кругу - пауза, за неё стан поднимается на первую строку,
-                    // и только потом начинается следующий круг
-                    if (staffManager.loopPlayback) {
+                    // Круг закончился. Сколько раз играть - читаем сейчас:
+                    // галочку и число повторов можно менять прямо во время игры
+                    staffManager.loopCount = (staffManager.loopCount || 0) + 1;
+                    const repeats = staffManager.loopRepeats || 20;
+                    const keepLooping = staffManager.loopPlayback &&
+                        staffManager.loopCount < repeats;
+
+                    if (keepLooping) {
                         staffManager.highlightElement(null);
                         staffManager.followPlayback(sequence[0]);
+                        staffManager.updateLoopCounter();
+
+                        // Отсчёт перед каждым повтором, а не только в начале.
+                        // Пауза тогда не нужна: отсчёт сам даёт три секунды
+                        if (staffManager.countIn) {
+                            staffManager.runCountIn(() => start(true), sequence[0]);
+                            return;
+                        }
+
                         staffManager.updateStatus(t('status.loopPause'));
                         start(true);
                         return;
                     }
+
                     staffManager.highlightElement(null);
                     setPlayingState(false);
-                    staffManager.updateStatus(t('status.playDone'));
+                    staffManager.loopCounterVisible = false;
+                    staffManager.updateLoopCounter(true);
+                    // Если круги кончились по счёту - так и скажем
+                    if (staffManager.loopPlayback && staffManager.loopCount >= repeats) {
+                        staffManager.updateStatus(t('status.loopDone', { n: staffManager.loopCount }));
+                    } else {
+                        staffManager.updateStatus(t('status.playDone'));
+                    }
                 },
                 onUnsupported: () => {
                     setPlayingState(false);
+                    staffManager.loopCounterVisible = false;
+                    staffManager.updateLoopCounter(true);
                     staffManager.updateStatus(t('status.noAudio'));
                 }
             }, playOptions);
             
-            if (!started) return;
+            if (!started) {
+                // Звук не поднялся: кнопки возвращаем, иначе «Играть» останется
+                // недоступной, а «Стоп» - активной
+                setPlayingState(false);
+                return;
+            }
             
             setPlayingState(true);
+            // Счётчик кругов виден всё проигрывание по кругу, включая паузы
+            // и отсчёт между кругами: в это время как раз видно, какой повтор
+            // будет следующим и сколько осталось
+            staffManager.loopCounterVisible = true;
+            staffManager.updateLoopCounter();
             
             if (staffManager.loopPlayback) {
                 staffManager.updateStatus(t('status.playingLoop', {
@@ -5530,9 +6201,17 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         
-        // Включён отсчёт - сначала три секунды с цифрами, потом игра
+        // Новое проигрывание - счёт кругов с нуля
+        staffManager.loopCount = 0;
+
+        // Включён отсчёт - сначала такт с цифрами, потом игра. Кнопки сразу
+        // переводим в «играем»: иначе второе нажатие запускало второй отсчёт,
+        // и два таймера начинали игру дважды
         if (staffManager.countIn) {
-            staffManager.runCountIn(() => start());
+            setPlayingState(true);
+            staffManager.loopCounterVisible = true;
+            staffManager.updateLoopCounter();
+            staffManager.runCountIn(() => start(), sequence[0]);
         } else {
             start();
         }
@@ -5568,7 +6247,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     function toggleMelody() {
-        if (staffManager.melodyPlayer && staffManager.melodyPlayer.playing) {
+        // Отсчёт - это уже начатый запуск: второе нажатие должно останавливать
+        // игру, а не заводить второй отсчёт
+        if ((staffManager.melodyPlayer && staffManager.melodyPlayer.playing) ||
+            staffManager.countInRunning) {
             stopMelody();
         } else {
             playMelody();
@@ -5672,9 +6354,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // При открытом окне стрелки не должны двигать ноты за ним
         if (document.querySelector('#about-modal:not([hidden]), #help-modal:not([hidden])')) return;
         
-        // Влево и вправо - переход по ногам
+        // Влево и вправо - переход по ногам. Во время игры эти же клавиши
+        // перескакивают по звучащим нотам: зазвучало с соседней, без паузы
         if (isLeft || isRight) {
             event.preventDefault();
+            if (staffManager.seekBy && staffManager.seekBy(isRight ? 1 : -1)) return;
             staffManager.moveSelection(isRight ? 1 : -1);
             return;
         }
@@ -5716,6 +6400,8 @@ document.addEventListener('DOMContentLoaded', () => {
         staffManager.melodyPlayer.stop();
         staffManager.highlightElement(null);
         setPlayingState(false);
+        staffManager.loopCounterVisible = false;
+        staffManager.updateLoopCounter(true);
         staffManager.updateStatus(t('status.playStopped'));
     }
     

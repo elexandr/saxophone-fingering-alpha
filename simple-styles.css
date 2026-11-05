@@ -140,15 +140,179 @@ body {
 }
 
 .control-section {
-    margin-bottom: 14px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid #e9ecef;
+    margin-bottom: 16px;
+    padding-bottom: 14px;
+    /* Граница блоков заметная: в панели видно, где кончается один раздел */
+    border-bottom: 2px solid #9fadbe;
 }
 
 .control-section:last-child {
     border-bottom: none;
     margin-bottom: 0;
     padding-bottom: 0;
+}
+
+/* Поле количества повторов по кругу: работает только при включённом круге */
+.loop-repeats {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: 13px;
+    color: #495057;
+}
+
+.loop-repeats .number-input {
+    width: 64px;
+}
+
+.loop-repeats .number-input:disabled {
+    background: #edf0f4;
+    color: #9aa5b1;
+    cursor: not-allowed;
+}
+
+/* Аудио-аккомпанемент: кнопка выбора файла и строка с названием */
+.audio-block {
+    margin-top: 6px;
+}
+
+.audio-row {
+    margin-top: 6px;
+    padding: 4px 8px 6px;
+    border-radius: 5px;
+    background: #f2f6ff;
+    color: #3a4b8a;
+    font-size: 11px;
+}
+
+.audio-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-bottom: 4px;
+}
+
+.audio-actions {
+    display: flex;
+    gap: 6px;
+}
+
+/* Фрагмент для разучивания: кнопки отметок и метки на стане */
+.fragment-group {
+    margin-top: 8px;
+}
+
+.fragment-row {
+    display: flex;
+    gap: 6px;
+}
+
+.btn-mini {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 5px 6px;
+    font-size: 11px;
+    color: #2d3748;
+    background: #ffffff;
+    border: 1px solid #cbd5e0;
+    border-radius: 5px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.btn-mini:hover:not(:disabled) { background: #f0f4f8; }
+
+.btn-mini:disabled {
+    color: #a8b2bd;
+    background: #f4f6f8;
+    cursor: not-allowed;
+}
+
+.btn-mini-wide {
+    width: 100%;
+    margin-top: 6px;
+}
+
+.fragment-info {
+    margin-top: 6px;
+    padding: 4px 8px;
+    border-radius: 5px;
+    background: #eaf4ec;
+    color: #2f6b45;
+    font-size: 11px;
+    text-align: center;
+}
+
+/* Метки на стане: начало, конец и весь участок фрагмента.
+   Сам .note-anchor нулевого размера, поэтому красим не его, а рамку
+   вокруг головки (halo) и подпись ноты */
+.note-anchor.in-fragment .glyph-halo {
+    opacity: 1;
+    stroke: #4c6ef5;
+    stroke-opacity: 0.3;
+    stroke-dasharray: none;
+    stroke-width: 1;
+}
+
+.note-anchor.in-fragment .note-label {
+    border-color: #b9c6fb;
+    color: #3a4b8a;
+}
+
+.note-anchor.fragment-start .glyph-halo {
+    opacity: 1;
+    stroke: #4c6ef5;
+    stroke-opacity: 1;
+    stroke-dasharray: none;
+    stroke-width: 3;
+}
+
+.note-anchor.fragment-start .note-label {
+    border-color: #4c6ef5;
+    background: #4c6ef5;
+    color: #ffffff;
+}
+
+.note-anchor.fragment-end .glyph-halo {
+    opacity: 1;
+    stroke: #f59f00;
+    stroke-opacity: 1;
+    stroke-dasharray: none;
+    stroke-width: 3;
+}
+
+.note-anchor.fragment-end .note-label {
+    border-color: #f59f00;
+    background: #f59f00;
+    color: #ffffff;
+}
+
+/* Счётчик повторов: виден всё проигрывание по кругу, включая паузы */
+.loop-counter {
+    margin-top: 6px;
+    padding: 4px 8px;
+    border-radius: 5px;
+    background: #e8eefc;
+    color: #3a4b8a;
+    font-size: 13px;
+    text-align: center;
+}
+
+.loop-counter-main {
+    display: block;
+    font-weight: 600;
+}
+
+.loop-counter-left {
+    display: block;
+    font-size: 11px;
+    opacity: 0.75;
 }
 
 .control-section h3 {
@@ -1609,11 +1773,104 @@ body.many-selected .note-anchor .duration-panel {
 .fine-body[hidden] {
     display: none;
 }
-/* Панель сопровождения: общая громкость и строка на каждую дорожку */
-.accompaniment-panel { margin: 8px 0; padding: 6px 8px; border-radius: 6px; background: rgba(255, 255, 255, 0.06); }
-.accompaniment-panel summary { cursor: pointer; font-weight: 600; font-size: 13px; }
-.accompaniment-master { display: flex; align-items: center; gap: 8px; margin: 8px 0 4px; font-size: 12px; }
-.accompaniment-master input[type="range"] { flex: 1; min-width: 40px; }
-.accompaniment-track { display: flex; align-items: center; gap: 6px; margin: 3px 0; font-size: 12px; }
-.accompaniment-name { flex: 0 0 86px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.accompaniment-track input[type="range"] { flex: 1; min-width: 40px; }
+/* Панель громкости: основная линия, сопровождение (и его дорожки), метроном.
+   Видна всегда, даже когда сопровождения в файле нет */
+/* Скрытая строка не показывается: display у строки свой, и он перебивал
+   браузерное правило для атрибута hidden */
+.volume-panel [hidden] {
+    display: none !important;
+}
+
+.volume-panel {
+    box-sizing: border-box;
+    margin: 8px 0 0;
+    padding: 4px 8px 8px;
+    border-radius: 6px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+}
+
+/* Заголовок строки: кнопка отключения и подпись линии */
+.volume-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.volume-mute {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 1px solid #d7dee7;
+    border-radius: 4px;
+    background: #ffffff;
+    color: #3f8f5f;
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.volume-mute:hover { background: #f0f4f8; }
+
+.volume-mute.muted {
+    color: #b04a4a;
+    border-color: #e7cccc;
+    background: #fdf1f1;
+}
+
+/* Свёрнутый блок: заголовок-переключатель */
+.volume-panel summary {
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    color: #495057;
+    padding: 2px 0;
+    list-style: none;
+}
+
+.volume-panel summary::-webkit-details-marker { display: none; }
+
+.volume-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 6px 0;
+    font-size: 12px;
+    color: #495057;
+}
+
+.volume-row label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.volume-row input[type="range"] {
+    width: 100%;
+    margin: 0;
+    /* Синяя заливка слева от ползунка: у всех трёх строк одинаково */
+    accent-color: #667eea;
+}
+
+/* Выключенная дорожка сопровождения: серое имя и серый ползунок */
+.accompaniment-track.muted {
+    opacity: 0.5;
+}
+
+.accompaniment-track.muted .accompaniment-name {
+    color: #8d99a6;
+}
+
+.accompaniment-track.muted input[type="range"] {
+    accent-color: #b6bfc9;
+    filter: grayscale(1);
+}
+
+.accompaniment-track { display: flex; align-items: center; gap: 6px; margin: 3px 0 3px 8px; font-size: 11px; }
+.accompaniment-name { flex: 0 0 78px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.accompaniment-track input[type="range"] { flex: 1; min-width: 36px; }
+

@@ -9,7 +9,7 @@
     <meta name="referrer" content="no-referrer">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <title data-i18n="app.docTitle">Saxophone Fingering Assistant</title>
-    <link rel="stylesheet" href="simple-styles.css?v=1.9.1-a1">
+    <link rel="stylesheet" href="simple-styles.css?v=1.9.14-a1">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
@@ -85,38 +85,84 @@
                             <input type="checkbox" id="loop-playback">
                             <i class="fas fa-repeat"></i> <span data-i18n="setting.loop">Играть по кругу</span>
                         </label>
+                        <div class="loop-repeats">
+                            <label for="loop-count" data-i18n="setting.loopRepeats">Повторов:</label>
+                            <input type="number" id="loop-count" class="number-input" min="1" max="999" step="1"
+                                   value="20" disabled data-i18n-title="setting.loopRepeats.hint">
+                        </div>
+                        <div id="loop-counter" class="loop-counter" hidden aria-live="polite"></div>
                     </div>
                     <div class="setting-group">
-                        <label class="checkbox-label" for="sound-main" data-i18n-title="setting.soundMain.hint">
-                            <input type="checkbox" id="sound-main" checked>
-                            <i class="fas fa-volume-up"></i> <span data-i18n="setting.soundMain">Звук основной линии</span>
-                        </label>
-                        <label class="checkbox-label" for="sound-accompaniment" data-i18n-title="setting.soundAccompaniment.hint">
-                            <input type="checkbox" id="sound-accompaniment" checked>
+                        <!-- Сворачиваемый блок громкости: виден всегда, даже когда
+                             в файле нет сопровождения, и помнит, открыт он или закрыт.
+                             В строке каждой линии - кнопка отключения и ползунок;
+                             у сопровождения ниже идут ещё строки дорожек -->
+                        <details id="accompaniment-panel" class="volume-panel" open>
+                            <summary data-i18n-title="setting.volume.hint">
+                                <i class="fas fa-sliders-h"></i> <span data-i18n="setting.volume">Громкость</span>
+                            </summary>
 
-                            <i class="fas fa-music"></i> <span data-i18n="setting.soundAccompaniment">Звук аккомпанемента</span>
-                        </label>
-
-                        <details id="accompaniment-panel" class="accompaniment-panel" hidden>
-                            <summary data-i18n="panel.accompaniment">Громкость сопровождения</summary>
-                            <div class="accompaniment-master">
-                                <span data-i18n="panel.accompanimentMaster">Общая</span>
-                                <input type="range" id="accompaniment-volume" min="0" max="100" value="100">
+                            <div class="volume-row">
+                                <div class="volume-head">
+                                    <button type="button" id="metronome-mute" class="volume-mute" aria-pressed="false"
+                                            data-i18n-title="setting.mute.hint"><i class="fas fa-volume-high"></i></button>
+                                    <label for="metronome-volume" data-i18n="setting.metronomeVolume">Метроном</label>
+                                </div>
+                                <input type="range" id="metronome-volume" min="0" max="100" value="60"
+                                       data-i18n-title="setting.metronome.volumeHint">
                             </div>
-                            <div id="accompaniment-tracks"></div>
+
+                            <div class="volume-row">
+                                <div class="volume-head">
+                                    <button type="button" id="main-mute" class="volume-mute" aria-pressed="false"
+                                            data-i18n-title="setting.mute.hint"><i class="fas fa-volume-high"></i></button>
+                                    <label for="main-volume" data-i18n="setting.mainVolume">Основная линия</label>
+                                </div>
+                                <input type="range" id="main-volume" min="0" max="100" value="100"
+                                       data-i18n-title="setting.mainVolume.hint">
+                            </div>
+
+                            <!-- Сопровождение показываем, только когда оно есть в файле -->
+                            <div class="volume-row" id="accompaniment-row" hidden>
+                                <div class="volume-head">
+                                    <button type="button" id="accompaniment-mute" class="volume-mute" aria-pressed="false"
+                                            data-i18n-title="setting.mute.hint"><i class="fas fa-volume-high"></i></button>
+                                    <label for="accompaniment-volume" data-i18n="setting.accompanimentVolume">Сопровождение</label>
+                                </div>
+                                <input type="range" id="accompaniment-volume" min="0" max="100" value="100"
+                                       data-i18n-title="setting.accompanimentVolume.hint">
+                            </div>
+                            <div id="accompaniment-tracks" hidden></div>
                         </details>
-                        <label class="checkbox-label" for="metronome-on" data-i18n-title="setting.metronome.hint">
-                            <input type="checkbox" id="metronome-on">
-                            <i class="fas fa-stopwatch"></i> <span data-i18n="setting.metronome">Метроном</span>
-                        </label>
-                        <input type="range" id="metronome-volume" min="0" max="100" value="60" class="slider"
-                               data-i18n-title="setting.metronome.volumeHint">
+
+                        <!-- Аудио-аккомпанемент: готовый музыкальный файл вместо партий -->
+                        <div class="audio-block">
+                            <button type="button" id="btn-audio-accompaniment" class="btn-mini btn-mini-wide"
+                                    data-i18n-title="btn.audioAccompaniment.hint">
+                                <i class="fas fa-file-audio"></i> <span data-i18n="btn.audioAccompaniment">Аудио-аккомпанемент</span>
+                            </button>
+                            <input type="file" id="audio-input" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac"
+                                   style="display: none;">
+                            <div id="audio-row" class="audio-row" hidden>
+                                <div id="audio-name" class="audio-name"></div>
+                                <div class="audio-actions">
+                                    <button type="button" id="btn-audio-tempo" class="btn-mini" disabled
+                                            data-i18n-title="btn.audioTempo.hint">
+                                        <i class="fas fa-sliders"></i> <span data-i18n="btn.audioTempo">Темп по файлу</span>
+                                    </button>
+                                    <button type="button" id="btn-audio-clear" class="btn-mini" disabled
+                                            data-i18n-title="btn.audioClear.hint">
+                                        <i class="fas fa-eraser"></i> <span data-i18n="btn.audioClear">Снять</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="setting-group">
                         <label class="checkbox-label" for="count-in-on" data-i18n-title="setting.countIn.hint">
-                            <input type="checkbox" id="count-in-on">
-                            <i class="fas fa-hourglass-start"></i> <span data-i18n="setting.countIn">Отсчёт перед началом</span>
+                            <input type="checkbox" id="count-in-on" checked>
+                            <i class="fas fa-hourglass-start"></i> <span data-i18n="setting.countIn">Отсчёт</span>
                         </label>
                     </div>
                     <div class="control-group">
@@ -126,6 +172,25 @@
                         <button id="btn-stop" class="btn-control btn-danger" disabled data-i18n-title="btn.stop.hint">
                             <i class="fas fa-stop"></i> <span data-i18n="btn.stop">Стоп</span>
                         </button>
+                    </div>
+
+                    <!-- Фрагмент для разучивания: первая и последняя нота повтора -->
+                    <div class="fragment-group">
+                        <div class="fragment-row">
+                            <button type="button" id="btn-fragment-start" class="btn-mini" disabled
+                                    data-i18n-title="btn.fragmentStart.hint">
+                                <i class="fas fa-flag"></i> <span data-i18n="btn.fragmentStart">Начало</span>
+                            </button>
+                            <button type="button" id="btn-fragment-end" class="btn-mini" disabled
+                                    data-i18n-title="btn.fragmentEnd.hint">
+                                <i class="fas fa-flag-checkered"></i> <span data-i18n="btn.fragmentEnd">Конец</span>
+                            </button>
+                        </div>
+                        <button type="button" id="btn-fragment-clear" class="btn-mini btn-mini-wide" disabled
+                                data-i18n-title="btn.fragmentClear.hint">
+                            <i class="fas fa-eraser"></i> <span data-i18n="btn.fragmentClear">Снять фрагмент</span>
+                        </button>
+                        <div id="fragment-info" class="fragment-info" hidden></div>
                     </div>
                 </div>
 
@@ -318,14 +383,14 @@
                     <div class="setting-group">
                         <label for="show-note-names" class="checkbox-label" data-i18n-title="setting.noteNames.hint">
                             <input type="checkbox" id="show-note-names" checked>
-                            <i class="fas fa-font"></i> <span data-i18n="setting.noteNames">Показывать названия нот</span>
+                            <i class="fas fa-font"></i> <span data-i18n="setting.noteNames">Названия нот</span>
                         </label>
                     </div>
 
                     <div class="setting-group">
                         <label for="show-fingerings" class="checkbox-label" data-i18n-title="setting.fingerings.hint">
                             <input type="checkbox" id="show-fingerings" checked>
-                            <i class="fas fa-hands"></i> <span data-i18n="setting.fingerings">Показывать аппликатуры</span>
+                            <i class="fas fa-hands"></i> <span data-i18n="setting.fingerings">Аппликатуры</span>
                         </label>
                     </div>
 
@@ -376,7 +441,7 @@
                 <span id="status-message" data-i18n="status.ready">Готов к работе. Кликните на маркер позиции, чтобы добавить ноту.</span>
                 <span id="cache-status" class="cache-status"></span>
                 <span class="app-file" id="current-file" hidden></span>
-            <span class="app-version">v1.9.1-a1</span>
+            <span class="app-version">v1.9.14-a1</span>
             </div>
         </footer>
     </div>
@@ -539,13 +604,13 @@
     </div>
 
     <!-- Скрипты -->
-    <script src="i18n.js?v=1.9.1-a1"></script>
-    <script src="note-symbols.js?v=1.9.1-a1"></script>
-    <script src="playback.js?v=1.9.1-a1"></script>
-    <script src="image-cache.js?v=1.9.1-a1"></script>
-    <script src="midi.js?v=1.9.1-a1"></script>
-    <script src="musicxml.js?v=1.9.1-a1"></script>
-    <script src="full-range-app.js?v=1.9.1-a1"></script>
+    <script src="i18n.js?v=1.9.14-a1"></script>
+    <script src="note-symbols.js?v=1.9.14-a1"></script>
+    <script src="playback.js?v=1.9.14-a1"></script>
+    <script src="image-cache.js?v=1.9.14-a1"></script>
+    <script src="midi.js?v=1.9.14-a1"></script>
+    <script src="musicxml.js?v=1.9.14-a1"></script>
+    <script src="full-range-app.js?v=1.9.14-a1"></script>
     <!-- Yandex.Metrika counter -->
 <script type="text/javascript">
     (function(m,e,t,r,i,k,a){

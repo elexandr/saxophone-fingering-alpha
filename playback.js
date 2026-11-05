@@ -221,6 +221,18 @@
     // Одна нота: две расстроенные пилы через фильтр, огибающая и вибрато.
     MelodyPlayer.prototype.scheduleNote = function (frequency, startAt, durationSec, destination) {
         var ctx = this.ctx;
+
+        // Время никогда не уходит в прошлое и не бывает отрицательным:
+        // на таком значении браузер выбрасывает RangeError и порция нот
+        // остаётся непоставленной - звук вставал на одном месте
+        var safeStart = Number(startAt);
+        if (!isFinite(safeStart)) safeStart = ctx.currentTime;
+        startAt = Math.max(safeStart, ctx.currentTime + 0.001);
+
+        var safeDuration = Number(durationSec);
+        if (!isFinite(safeDuration) || safeDuration <= 0) safeDuration = 0.05;
+        durationSec = Math.max(0.05, safeDuration);
+
         var attack = 0.025;
         var release = 0.09;
         var end = startAt + durationSec;
@@ -267,10 +279,30 @@
         lfo.stop(stopAt);
 
         var voices = [osc1, osc2, lfo];
-        this.voices.push.apply(this.voices, voices);
+        // Отзвучавший голос убираем из списка: иначе за длинную пьесу в нём
+        // копятся тысячи уже остановленных узлов, растёт память и появляются
+        // паузы - ближе к концу проигрывание начинает заикаться
+        this.trackVoices(voices);
 
         // Возвращаем голоса: вызывающий может погасить звук раньше срока
         return voices;
+    };
+
+    // Держим в списке только звучащие голоса: как только узел отзвучал,
+    // он исчезает из списка и может быть собран сборщиком мусора
+    MelodyPlayer.prototype.trackVoices = function (voices) {
+        var self = this;
+
+        voices.forEach(function (voice) {
+            if (!voice) return;
+
+            voice.onended = function () {
+                var index = self.voices.indexOf(voice);
+                if (index >= 0) self.voices.splice(index, 1);
+            };
+        });
+
+        this.voices.push.apply(this.voices, voices);
     };
 
     // elements: [{ noteName, duration, dotted, isRest }], handlers: { onElement, onEnd, onUnsupported }
@@ -289,6 +321,11 @@
         var ctx = this.ctx;
         if (!ctx) return;
 
+        // Как и у нот: время щелчка не может быть в прошлом
+        var safeStart = Number(startAt);
+        if (!isFinite(safeStart)) safeStart = ctx.currentTime;
+        startAt = Math.max(safeStart, ctx.currentTime + 0.001);
+
         var osc = ctx.createOscillator();
         var gain = ctx.createGain();
 
@@ -305,18 +342,77 @@
 
         osc.start(startAt);
         osc.stop(startAt + 0.08);
-        this.voices.push(osc);
+        this.trackVoices([osc]);
     };
 
     // Громкость метронома: 0..1
     MelodyPlayer.prototype.setMetronomeVolume = function (value) {
-        if (this.metronomeGain) {
-            this.metronomeGain.gain.value = Math.max(0, Math.min(1, value));
-        }
+        this.metronomeVolume = Math.max(0, Math.min(1, value));
+        this.applyMetronomeGain();
     };
 
-    // Щелчки отсчёта перед началом: последний - как затакт к сильной доле
-    MelodyPlayer.prototype.countInClicks = function (count, secondsEach) {
+    // Кнопка отключения метронома: щелчки приглушаются узлом, поэтому
+    // включать и выключать можно во время игры
+    // === Аудио-аккомпанемент ===
+    // Файл (mp3, wav, ogg) играется вместе с мелодией. Своей сетки у него нет:
+    // он привязан к долям мелодии, поэтому подходит, когда темп выставлен
+    // по длине файла. Зацикливание и фрагмент пересчитываются в секунды
+
+    MelodyPlayer.prototype.setAudioTrack = function (buffer, name) {
+        this.audioTrack = buffer ? { buffer: buffer, name: name || '' } : null;
+        return this.audioTrack;
+    };
+
+    MelodyPlayer.prototype.hasAudioTrack = function () {
+        return !!(this.audioTrack && this.audioTrack.buffer);
+    };
+
+    // Куcок дорожки: с секунды fromSeconds, длиной lengthSeconds, начиная
+    // со времени startAt. Играет через громкость сопровождения, поэтому
+    // ползунок и кнопка отключения действуют и на файл
+    MelodyPlayer.prototype.scheduleAudioTrack = function (fromSeconds, lengthSeconds, startAt) {
+        if (!this.hasAudioTrack() || !this.ctx) return null;
+
+        var buffer = this.audioTrack.buffer;
+        var offset = Math.max(0, Math.min(Number(fromSeconds) || 0, Math.max(0, buffer.duration - 0.02)));
+        var length = Math.max(0.05, Math.min(Number(lengthSeconds) || buffer.duration, buffer.duration - offset));
+
+        var destination = this.accompanimentBus ? this.accompanimentBus.master : this.master;
+        if (!destination) return null;
+
+        var source = this.ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(destination);
+
+        var when = Math.max(Number(startAt) || 0, this.ctx.currentTime + 0.001);
+        source.start(when, offset, length);
+        this.trackVoices([source]);
+
+        return source;
+    };
+
+    MelodyPlayer.prototype.applyMetronomeGain = function () {
+        if (!this.metronomeGain) return;
+        var volume = this.metronomeVolume === undefined ? 0.6 : Number(this.metronomeVolume) || 0;
+        this.metronomeGain.gain.value = this.metronomeMuted ? 0 : volume;
+    };
+
+    MelodyPlayer.prototype.setMetronomeMuted = function (muted) {
+        this.metronomeMuted = !!muted;
+        this.applyMetronomeGain();
+    };
+
+    // Включение метронома во время игры: щелчки пойдут с ближайшей доли,
+    // даже если при запуске метроном был выключен
+    MelodyPlayer.prototype.setMetronomeLive = function (enabled) {
+        this.metronomeLive = !!enabled;
+        this.metronomeMuted = !this.metronomeLive;
+        this.applyMetronomeGain();
+    };
+
+    // Щелчки отсчёта. accentFirst - ударять первую долю: отсчёт длиной в такт
+    // начинается с сильной доли, и по ней проще поймать начало
+    MelodyPlayer.prototype.countInClicks = function (count, secondsEach, accentFirst) {
         var ctx = this.ensureContext();
         if (!ctx) return;
 
@@ -326,7 +422,8 @@
         var start = ctx.currentTime + 0.05;
 
         for (var i = 0; i < count; i++) {
-            this.scheduleClick(start + i * step, i === count - 1);
+            var accent = accentFirst ? i === 0 : i === count - 1;
+            this.scheduleClick(start + i * step, accent);
         }
     };
 
@@ -428,8 +525,12 @@
         // можно переключать во время игры. Раньше при снятой галочке ноты
         // не ставились вовсе, и включить её в середине пьесы было нечем
         this.mainMuted = !!options.muteMain;
+        // Громкость основной линии - своя, отдельно от сопровождения
+        this.mainVolume = options.mainVolume === undefined
+            ? 1
+            : Math.max(0, Math.min(1, Number(options.mainVolume) || 0));
         this.melodyBus = ctx.createGain();
-        this.melodyBus.gain.value = this.mainMuted ? 0 : 1;
+        this.melodyBus.gain.value = this.mainMuted ? 0 : this.mainVolume;
         this.melodyBus.connect(this.master);
 
         function trackBus(trackIndex, trackName) {
@@ -459,11 +560,10 @@
 
             // Галочка «звук сопровождения» глушит громкость, а не пропускает
             // ноты. Пропущенные ноты терялись навсегда: снял галочку - тишина,
-            // поставил обратно - и включать уже нечего
-            if (typeof document !== 'undefined') {
-                var checkbox = document.getElementById('sound-accompaniment');
-                if (checkbox) self.setAccompanimentMuted(!checkbox.checked);
-            }
+            // поставил обратно - и включать уже нечего.
+            // Состояние берём своё, а не из разметки: страница не обязана
+            // знать про эти узлы, да и в проверках разметки может не быть
+            self.setAccompanimentMuted(!!self.accompanimentMuted);
 
             var horizon = ctx.currentTime + 2.0;
             while (accIndex < accNotes.length) {
@@ -474,7 +574,22 @@
                     accIndex++;
                     continue;
                 }
-                var startAt = startCursor + (noteBeat - accFromBeat) * secondsPerBeat;
+
+                // Нота могла начаться ДО места старта и ещё звучать (например,
+                // длинный аккорд на стыке фрагмента). Такое начало уходило
+                // в прошлое, вплоть до отрицательного времени, и браузер падал
+                // на setValueAtTime - вместе с падением вставала вся порция.
+                // Играем её с места старта, укоротив на уже прошедшую часть
+                var offsetBeats = noteBeat - accFromBeat;
+                var startAt = startCursor;
+                var noteSeconds = (note.beats || 1) * secondsPerBeat;
+
+                if (offsetBeats >= 0) {
+                    startAt = startCursor + offsetBeats * secondsPerBeat;
+                } else {
+                    noteSeconds = Math.max(0.05, noteSeconds + offsetBeats * secondsPerBeat);
+                }
+
                 if (startAt > horizon) break;
                 accIndex++;
 
@@ -496,7 +611,7 @@
                 // и полем «Сдвиг сопровождения»
                 var shift = self.accompanimentTranspose || 0;
                 var frequency = 440 * Math.pow(2, (note.midi + shift - 69) / 12);
-                self.scheduleNote(frequency, startAt, (note.beats || 1) * secondsPerBeat * 0.98, bus.gain);
+                self.scheduleNote(frequency, startAt, noteSeconds * 0.98, bus.gain);
             }
             if (accIndex < accNotes.length) {
                 // Таймер кладём в общий список: stop() его очистит
@@ -543,40 +658,55 @@
         // сотни, и разом они занимали главный поток сильнее, чем ноты
         var beatSeconds = 60 / (tempo > 0 ? tempo : 80);
         var beatsPerBar = options.beatsPerBar > 0 ? options.beatsPerBar : 4;
-        var metronomeOn = !!options.metronome;
+        // Метроном можно включить и в середине игры: тогда он начинает
+        // отсчитывать с ближайшей доли, а не только со следующего запуска
+        this.metronomeLive = !!options.metronome;
+        this.metronomeMuted = !this.metronomeLive;
+        this.applyMetronomeGain();
         var metronomeStart = ctx.currentTime + leadIn;
-        var metronomeTotal = metronomeOn ? Math.round((cursor - metronomeStart) / beatSeconds) : -1;
+        var metronomeTotal = Math.round((cursor - metronomeStart) / beatSeconds);
         var metronomeBeat = 0;
 
         function scheduleMelodyPortion() {
             if (!self.playing) return;
             var horizon = ctx.currentTime + 2.0;
 
-            while (melodyIndex < timeline.length) {
-                var step = timeline[melodyIndex];
-                if (step.startAt > horizon) break;
-                melodyIndex++;
+            // Одна плохая нота не должна останавливать проигрывание: раньше
+            // исключение внутри порции обрывало всю цепочку, а звук замолкал
+            try {
+                while (melodyIndex < timeline.length) {
+                    var step = timeline[melodyIndex];
+                    if (step.startAt > horizon) break;
+                    melodyIndex++;
 
-                // Основную линию можно выключить: подсветка при этом работает,
-                // потому что она идёт по времени, а не по звуку
-                if (step.skip || step.element.isRest) continue;
-                var frequency = noteToFrequency(step.element.noteName, self.transpose);
-                if (!frequency) continue;
-                self.scheduleNote(frequency, step.startAt,
-                    step.seconds * (step.joined ? 1 : 0.92), self.melodyBus);
-            }
-
-            if (metronomeOn) {
-                while (metronomeBeat <= metronomeTotal) {
-                    var clickAt = metronomeStart + metronomeBeat * beatSeconds;
-                    if (clickAt > horizon) break;
-                    self.scheduleClick(clickAt, metronomeBeat % beatsPerBar === 0);
-                    metronomeBeat++;
+                    // Основную линию можно выключить: подсветка при этом работает,
+                    // потому что она идёт по времени, а не по звуку
+                    if (step.skip || step.element.isRest) continue;
+                    var frequency = noteToFrequency(step.element.noteName, self.transpose);
+                    if (!frequency) continue;
+                    self.scheduleNote(frequency, step.startAt,
+                        step.seconds * (step.joined ? 1 : 0.92), self.melodyBus);
                 }
+
+                if (self.metronomeLive) {
+                    // Догоняем текущую долю: если метроном включили в середине игры,
+                    // щелчки начинаются с ближайшей доли, а не с начала пьесы
+                    var nowBeat = Math.floor((ctx.currentTime - metronomeStart) / beatSeconds);
+                    if (metronomeBeat < nowBeat) metronomeBeat = nowBeat + 1;
+
+                    while (metronomeBeat <= metronomeTotal) {
+                        var clickAt = metronomeStart + metronomeBeat * beatSeconds;
+                        if (clickAt > horizon) break;
+                        self.scheduleClick(clickAt, metronomeBeat % beatsPerBar === 0);
+                        metronomeBeat++;
+                    }
+                }
+            } catch (error) {
+                self.lastScheduleError = String(error && error.message || error);
             }
 
             var melodyLeft = melodyIndex < timeline.length;
-            var metronomeLeft = metronomeOn && metronomeBeat <= metronomeTotal;
+            var metronomeLeft = self.metronomeLive && metronomeBeat <= metronomeTotal;
             if (melodyLeft || metronomeLeft) {
                 self.timers.push(setTimeout(scheduleMelodyPortion, 500));
             }
@@ -587,6 +717,15 @@
         this.timeline = timeline;
         this.timelineIndex = 0;
         this.endsAt = cursor + tailMs / 1000;
+
+        // Аудио-аккомпанемент ставим после расчёта длины мелодии: длительность
+        // берём из cursor, а он к этому месту уже досчитан до конца
+        if (options.audioTrack) this.setAudioTrack(options.audioTrack, options.audioTrackName);
+        if (this.hasAudioTrack()) {
+            var audioFromSeconds = accFromBeat * secondsPerBeat;
+            var audioLengthSeconds = Math.max(0.05, cursor - startCursor);
+            this.scheduleAudioTrack(audioFromSeconds, audioLengthSeconds, startCursor);
+        }
 
         // Смотрим на звуковые часы в каждом кадре: тогда подсветка отстаёт от
         // звука не больше чем на кадр, и её не сдвигает работа главного потока
@@ -644,7 +783,9 @@
         // состояние, иначе перепланирование вернуло бы старое
         var options = Object.assign({}, this.lastPlay.options, {
             muteMain: !!this.mainMuted,
-            muteAccompaniment: !!this.accompanimentMuted
+            muteAccompaniment: !!this.accompanimentMuted,
+            mainVolume: this.mainVolume,
+            metronome: !!this.metronomeLive
         });
 
         // Сопровождение продолжает с текущего места, а не с начала пьесы
@@ -679,10 +820,22 @@
         this.applyAccompanimentGain();
     };
 
-    // Галочка «звук основной линии»
+    // Громкость и галочка «звук основной линии»: меняются значения узла,
+    // поэтому действуют сразу и во время игры
+    MelodyPlayer.prototype.applyMainGain = function () {
+        if (!this.melodyBus) return;
+        var volume = this.mainVolume === undefined ? 1 : Number(this.mainVolume) || 0;
+        this.melodyBus.gain.value = this.mainMuted ? 0 : volume;
+    };
+
+    MelodyPlayer.prototype.setMainVolume = function (value) {
+        this.mainVolume = Math.max(0, Math.min(1, Number(value) || 0));
+        this.applyMainGain();
+    };
+
     MelodyPlayer.prototype.setMainMuted = function (muted) {
         this.mainMuted = !!muted;
-        if (this.melodyBus) this.melodyBus.gain.value = this.mainMuted ? 0 : 1;
+        this.applyMainGain();
     };
 
     MelodyPlayer.prototype.applyTrackGain = function (bus) {
