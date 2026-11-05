@@ -1983,7 +1983,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
     updateNoteCount() {
         const notes = this.notes.filter(n => !n.isRest).length;
-        const rests = this.notes.length - notes;
+        // Паузы сетки по длине записи не считаем: это не мелодия
+        const rests = this.notes.filter(n => n.isRest && !n.gridRest).length;
         document.getElementById('note-count').textContent = rests > 0
             ? t('notes.countWithRests', { n: notes, m: rests, word: I18n.plural('rests.short', rests) })
             : t('notes.count', { n: notes });
@@ -2158,11 +2159,16 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // целая на медленном темпе тянулась бы слишком долго
         const seconds = Math.min(1.2, Math.max(0.35, Playback.secondsFor(element, this.tempo)));
         
+        // Громкость и отключение основной линии действуют и здесь: при
+        // нулевой громкости нота не звучит, но выделение работает
+        const level = this.mainMuted ? 0 : (Number(this.mainVolume) || 0);
+        if (level <= 0.001) return true;
+
         // Предыдущее озвучивание гасим: при частом нажатии стрелок ноты
         // иначе накладывались бы друг на друга
         this.stopNotePreview();
         this.previewVoices = this.melodyPlayer.scheduleNote(
-            frequency, ctx.currentTime + 0.02, seconds) || [];
+            frequency, ctx.currentTime + 0.02, seconds, null, level) || [];
         
         return true;
     }
@@ -4218,7 +4224,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     // Единый формат сохранения для файла и LocalStorage
     serializeMelody() {
         return {
-            elements: this.notes.map(note => ({
+            // Паузы-сетка по длине записи в файл не идут: это только вид стана
+            elements: this.notes.filter(note => !note.gridRest).map(note => ({
                 isRest: !!note.isRest,
                 positionId: note.positionId,
                 noteName: note.noteName,
@@ -4949,18 +4956,21 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         return !!this.audioTrackBuffer;
     }
 
-    // Сколько долей в мелодии: по ним считаем темп под длину файла
+    // Сколько долей в мелодии: без пауз-сетки, это настоящие ноты
     melodyBeatsTotal() {
-        return this.notes.reduce((sum, element) => sum + Playback.beatsOf(element), 0);
+        return this.notes
+            .filter(element => !element.gridRest)
+            .reduce((sum, element) => sum + Playback.beatsOf(element), 0);
     }
 
-    // Темп, при котором мелодия и файл кончаются вместе
-    audioTempo() {
+    // Сколько тактов занимает запись при текущем темпе: по этому числу
+    // строится стан (см. applyAudioGrid). Темп задаёт пользователь,
+    // а длина стана следует из длины записи
+    audioMeasures() {
         if (!this.hasAudioTrack() || !this.audioTrackBuffer.duration) return 0;
-        const beats = this.melodyBeatsTotal();
-        if (beats <= 0) return 0;
-        const tempo = Math.round(beats * 60 / this.audioTrackBuffer.duration);
-        return Math.min(240, Math.max(30, tempo));
+        const measure = this.measureBeats() || 4;
+        const beats = this.audioTrackBuffer.duration * this.tempo / 60;
+        return Math.max(1, Math.round(beats / measure));
     }
 
     // Поставить дорожку: сюда приходит уже расшифрованный звук
@@ -4980,58 +4990,41 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             return false;
         }
 
-        // Темп подгоняем сразу: иначе мелодия и файл разъедутся
-        const tempo = this.audioTempo();
-        if (tempo) {
-            this.setTempo(tempo);
-            const field = document.getElementById('tempo-input');
-            if (field) field.value = String(tempo);
-        }
+        // Темп остаётся тем, что выставлен: он задаёт, сколько тактов
+        // записи соответствует. Стан подстраиваем под длину файла
+        this.buildingGrid = true;
+        this.applyAudioGrid();
+        this.buildingGrid = false;
 
         this.updateStatus(t('status.audioLoaded', {
             name: this.audioTrackName,
-            tempo: tempo || this.tempo
+            measures: this.audioMeasures(),
+            tempo: this.tempo
         }));
         return true;
     }
 
     clearAudioTrack() {
+        // Запись снята - её сетка тоже больше не нужна
+        this.removeGridRests();
+        this.relayout();
         if (!this.hasAudioTrack()) return false;
         this.applyAudioTrack(null, '');
         return true;
     }
 
-    // Подогнать темп заново: пригодится, если мелодию поправили после загрузки
-    matchTempoToAudio() {
-        if (!this.hasAudioTrack()) {
-            this.updateStatus(t('status.audioNeedFile'));
-            return false;
-        }
-
-        const tempo = this.audioTempo();
-        if (!tempo) return false;
-
-        this.setTempo(tempo);
-        const field = document.getElementById('tempo-input');
-        if (field) field.value = String(tempo);
-        this.renderAudioAccompaniment();
-        this.updateStatus(t('status.audioTempo', { tempo: tempo }));
-        return true;
-    }
 
     // Строка с названием файла, длительностью и темпом
     renderAudioAccompaniment() {
         const row = document.getElementById('audio-row');
         const nameNode = document.getElementById('audio-name');
         const clearButton = document.getElementById('btn-audio-clear');
-        const tempoButton = document.getElementById('btn-audio-tempo');
         if (!row) return;
 
         const hasTrack = this.hasAudioTrack();
         row.hidden = !hasTrack;
 
         if (clearButton) clearButton.disabled = !hasTrack;
-        if (tempoButton) tempoButton.disabled = !hasTrack;
         if (!hasTrack) {
             if (nameNode) nameNode.textContent = '';
             return;
@@ -5041,9 +5034,72 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             nameNode.textContent = t('audio.info', {
                 name: this.audioTrackName,
                 seconds: Math.round(this.audioTrackBuffer.duration),
-                tempo: this.audioTempo()
+                measures: this.audioMeasures()
             });
         }
+    }
+
+    // Стан по длине записи: сколько при текущем темпе в неё влезает тактов,
+    // столько и рисуем. Хвост заполняем паузами-сеткой: их можно снять
+    // или пересчитать, а настоящие ноты не трогаются
+    // Снять паузы-сетку: убираем и элементы, и их разметку. Просто вырезать
+    // их из notes нельзя - узлы остались бы висеть на стане
+    removeGridRests() {
+        const grid = this.notes.filter(note => note.gridRest);
+        grid.forEach(note => {
+            if (note.element && note.element.remove) note.element.remove();
+        });
+        this.notes = this.notes.filter(note => !note.gridRest);
+        return grid.length;
+    }
+
+    applyAudioGrid(silent = true) {
+        // Прежнюю сетку убираем: она зависела от прежнего темпа и размера
+        this.removeGridRests();
+
+        if (!this.hasAudioTrack() || !this.audioTrackBuffer.duration) {
+            if (!this.notes.length) this.relayout();
+            return false;
+        }
+
+        const measure = this.measureBeats() || 4;
+        const seconds = this.audioTrackBuffer.duration;
+        const beats = seconds * this.tempo / 60;
+        // Целое число тактов: сетка не должна обрываться на середине
+        const measures = Math.max(1, Math.round(beats / measure));
+        const target = measures * measure;
+
+        let used = 0;
+        this.notes.forEach(note => { used += this.elementBeats(note); });
+
+        // Мелодия уже длиннее записи: не режем, просто не добавляем пауз
+        if (used < target - 0.01) {
+            let left = target - used;
+
+            // Добиваем целыми паузами, остаток - тем, что короче
+            while (left > 0.01) {
+                const options = [4, 2, 1].filter(value => value <= left + 1e-6);
+                const duration = options.length ? options[0] : (left >= 0.5 ? 1 : 2);
+                const beatsLeft = Math.min(duration, left);
+
+                const rest = this.addRest(null, { silent: true });
+                const element = this.notes[this.notes.length - 1];
+                if (!element) break;
+
+                // addRest берёт длительность у предыдущего элемента -
+                // ставим нужную и помечаем паузу как часть сетки
+                this.setElementDuration(element, duration <= 1 ? 4 : duration, {
+                    silent: true, history: false
+                });
+                element.gridRest = true;
+                element.beats = beatsLeft;
+                left -= beatsLeft;
+            }
+        }
+
+        if (!silent) this.scheduleAutosave();
+        this.relayout();
+        return true;
     }
 
     // Чтение файла: расшифровка звука асинхронная
@@ -5184,6 +5240,25 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const input = document.getElementById('tempo-input');
         if (input && parseInt(input.value, 10) !== tempo) input.value = tempo;
 
+        // При загруженной записи стан подгоняется под её длину: в другой темп
+        // влезает другое число тактов, и сетка пересчитывается
+        if (changed && this.hasAudioTrack() && !this.buildingGrid) {
+            this.buildingGrid = true;
+            const wasPlaying = this.melodyPlayer && this.melodyPlayer.playing;
+            const current = wasPlaying && this.melodyPlayer.timeline
+                ? this.melodyPlayer.timeline[this.melodyPlayer.timelineIndex || 0]
+                : null;
+
+            this.applyAudioGrid();
+
+            // Игру перезапускаем с текущего места: список нот изменился
+            if (wasPlaying && typeof this.playFromElement === 'function') {
+                this.playFromElement(current && current.element ? current.element : this.notes[0]);
+            }
+            this.buildingGrid = false;
+            return tempo;
+        }
+
         // Темп меняется сразу и во время игры: остаток мелодии ставится
         // заново с новым темпом, сопровождение продолжает с текущего места
         if (changed && this.melodyPlayer && this.melodyPlayer.playing) {
@@ -5298,7 +5373,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 version: version,
                 fingeringSet: (typeof FINGERING_SET_ID !== 'undefined') ? FINGERING_SET_ID : ''
             },
-            elements: this.notes
+            // Паузы-сетка по длине записи в файл не идут
+            elements: this.notes.filter(note => !note.gridRest)
         });
 
         const blob = new Blob([xml], { type: 'application/vnd.recordare.musicxml+xml' });
@@ -5996,10 +6072,6 @@ document.addEventListener('DOMContentLoaded', () => {
         audioClearButton.addEventListener('click', () => staffManager.clearAudioTrack());
     }
 
-    const audioTempoButton = document.getElementById('btn-audio-tempo');
-    if (audioTempoButton) {
-        audioTempoButton.addEventListener('click', () => staffManager.matchTempoToAudio());
-    }
 
     // Фрагмент для разучивания: отмечаем выделенную ноту началом или концом
     const fragmentStartButton = document.getElementById('btn-fragment-start');

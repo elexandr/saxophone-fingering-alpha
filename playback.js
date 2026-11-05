@@ -219,7 +219,9 @@
     };
 
     // Одна нота: две расстроенные пилы через фильтр, огибающая и вибрато.
-    MelodyPlayer.prototype.scheduleNote = function (frequency, startAt, durationSec, destination) {
+    // level - доля громкости (0..1): так озвучивание ноты при правке слушается
+    // ползунка основной линии
+    MelodyPlayer.prototype.scheduleNote = function (frequency, startAt, durationSec, destination, level) {
         var ctx = this.ctx;
 
         // Время никогда не уходит в прошлое и не бывает отрицательным:
@@ -236,7 +238,8 @@
         var attack = 0.025;
         var release = 0.09;
         var end = startAt + durationSec;
-        var peak = 0.3;
+        var volume = level === undefined ? 1 : Math.max(0, Math.min(1, Number(level) || 0));
+        var peak = 0.3 * volume;
 
         var osc1 = ctx.createOscillator();
         var osc2 = ctx.createOscillator();
