@@ -37,6 +37,20 @@ const LOOP_PAUSE_SECONDS = 2;
 const CONTACT_PARTS = ['moc', 'liamg', 'idabis'];
 const DEFAULT_TIME_SIGNATURE = '4/4';
 
+// Версия страницы видна в подвале. По ней отличаем альфу от рабочей версии:
+// оба сайта живут на одном домене, и localStorage у них общий. Без приставки
+// альфа при загрузке подхватывала мелодию рабочей версии и затирала её своим
+// автосохранением
+const APP_VERSION = (function () {
+    if (typeof document === 'undefined') return '';
+    const node = document.querySelector('.app-version');
+    return node ? String(node.textContent || '').trim() : '';
+})();
+
+// Альфа-версия помечена суффиксом вида -a12: у неё отдельный ключ
+const STORAGE_PREFIX = /-a\d+/i.test(APP_VERSION) ? 'alpha-' : '';
+const STORAGE_KEY = STORAGE_PREFIX + 'saxophone-fullrange-data';
+
 // Короткий доступ к переводам: строки интерфейса живут в i18n.js
 function t(key, params) {
     return I18n.t(key, params);
@@ -4275,7 +4289,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     
     saveToLocalStorage(silent = false) {
         try {
-            localStorage.setItem('saxophone-fullrange-data', JSON.stringify(this.serializeMelody()));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(this.serializeMelody()));
             if (!silent) this.updateStatus(t('status.savedLocal'));
             return true;
         } catch (error) {
@@ -5181,7 +5195,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     
     loadFromLocalStorage() {
         try {
-            const dataStr = localStorage.getItem('saxophone-fullrange-data');
+            const dataStr = localStorage.getItem(STORAGE_KEY);
             if (!dataStr) {
                 this.updateStatus(t('status.noSavedMelody'));
                 return false;
