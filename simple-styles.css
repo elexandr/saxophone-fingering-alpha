@@ -649,7 +649,9 @@ body {
 .staff-clef {
     position: absolute;
     left: 2px;
-    top: 127px;
+    /* Завиток ключа должен лежать на линейке G (вторая снизу, y=150):
+       top = (150 + 0.113em) - 0.915em при кегле 116px, то есть 57px */
+    top: 57px;
     font-family: 'Segoe UI Symbol', 'Apple Symbols', 'Noto Music', serif;
     font-size: 116px;
     line-height: 1;
@@ -2014,9 +2016,27 @@ body.print-layout .staff-area {
         page-break-inside: avoid;
     }
 
-    /* Ряд аппликатур на бумаге ниже: карточки мельче экранных */
+    /* Ряд аппликатур на бумаге: карточки мельче экранных и вплотную
+       к стану - на экране между ними оставлено место под подписи */
     .fingerings-row {
         min-height: 0 !important;
+        margin-top: 0 !important;
+        border-top: 0 !important;
+    }
+
+    .staff-wrapper {
+        overflow: hidden !important;
+    }
+
+    /* Блоки друг к другу ближе, без лишних полей */
+    .system {
+        border-radius: 0 !important;
+        margin-bottom: 3mm !important;
+    }
+
+    .staff-container {
+        border: 0 !important;
+        border-radius: 0 !important;
     }
 
     /* Названия нот печатаются, только если отмечено в окне печати */

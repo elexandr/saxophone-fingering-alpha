@@ -27,6 +27,9 @@ const DURATION_LADDER = [1, 2, 4, 8, 16];
 // Ширина карточки аппликатуры на бумаге: вдвое мельче экранной, иначе
 // на строку А4 помещается один такт, а не три-четыре
 const PRINT_IMAGE_SIZE = 44;
+// Сколько места под станом на бумаге: три линейки до ряда аппликатур
+// (на экране там же лежат подписи нот и запас под прокрутку)
+const PRINT_STAFF_BOTTOM_GAP = 3 * STAFF_LINE_SPACING;
 
 // Отступ от верха области, когда показываем звучащую строку
 const PLAYBACK_SCROLL_MARGIN = 8;
@@ -3425,18 +3428,30 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             if (element.y + extent.bottom > bottom) bottom = element.y + extent.bottom;
         });
         
-        const offset = Math.max(0, Math.ceil(top) - 6); // 6px поля сверху
+        const rawOffset = Math.ceil(top) - 6; // 6px поля сверху
+        const offset = Math.max(0, rawOffset);
         const height = Math.max(140, Math.ceil(bottom - offset + 8));
-        return { offset: offset, height: height };
+        // rawOffset нужен бумаге: там ноты выше стана не обрезаются,
+        // и стан можно сдвинуть вниз (отрицательное смещение)
+        return { offset: offset, height: height, rawOffset: rawOffset };
     }
     
     applyStaffMetrics() {
         const metrics = this.systemMetrics();
-        
+
+        // На бумаге стан стоит у верха блока. Сверху оставляем столько,
+        // сколько просят сами ноты (высокие ноты и их штили), снизу -
+        // ровно три линейки: на экране запасы больше (окошко длительности
+        // и подписи), на бумаге они только растягивают страницу
+        const printOffset = metrics.rawOffset === undefined ? metrics.offset : metrics.rawOffset;
+        const offset = this.printLayout ? printOffset : metrics.offset;
+        const printHeight = Math.max(140, STAFF_MAIN_BOTTOM - printOffset + PRINT_STAFF_BOTTOM_GAP);
+        const height = this.printLayout ? printHeight : metrics.height;
+
         this.staffContainers.forEach(staff => {
             const wrapper = staff.parentElement;
-            if (wrapper) wrapper.style.height = metrics.height + 'px';
-            staff.style.transform = 'translateY(-' + metrics.offset + 'px)';
+            if (wrapper) wrapper.style.height = height + 'px';
+            staff.style.transform = 'translateY(-' + offset + 'px)';
         });
     }
     
