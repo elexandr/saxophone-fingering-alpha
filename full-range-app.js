@@ -120,6 +120,8 @@ class FullRangeStaffManager {
         // 'notes' - по нотам, тогда такт может начаться на одной строке,
         // а кончиться на следующей. Выбор помнится между запусками
         this.printWrap = this.savedPrintWrap();
+        // Масштаб печати в процентах: 100 - тот вид, что подобран для А4
+        this.printScale = this.savedPrintScale();
         // Показывать звучащие ноты: включено - подписи звучащих нот,
         // выключено - написанные (истина тут у пианино)
         this.soundingNames = false;
@@ -906,9 +908,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     // раскладку, поэтому ширина задаётся обратной долей - и строка
     // по-прежнему занимает всю ширину экрана, просто мельче.
     systemScale() {
-        // На бумаге стан мельче экранного на треть: на страницу
-        // влезает больше строк, а знаки остаются читаемыми
-        if (this.printLayout) return PRINT_SYSTEM_SCALE;
+        // На бумаге стан мельче экранного на треть, а выбранный
+        // в окне печати масштаб растягивает или сжимает его от этого вида
+        if (this.printLayout) return PRINT_SYSTEM_SCALE * this.printScale;
 
         const metrics = this.systemMetrics();
         const required = metrics.height + FINGERING_ROW_HEIGHT + 34;
@@ -5478,6 +5480,32 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         }
     }
 
+    // Запомненный масштаб печати (в процентах)
+    savedPrintScale() {
+        try {
+            const raw = Number(localStorage.getItem(STORAGE_PREFIX + 'saxophone-print-scale'));
+            return this.clampPrintScale(raw || 100) / 100;
+        } catch (error) {
+            return 1;
+        }
+    }
+
+    clampPrintScale(percent) {
+        const value = Number(percent) || 100;
+        return Math.min(150, Math.max(50, Math.round(value)));
+    }
+
+    rememberPrintScale(percent) {
+        const value = this.clampPrintScale(percent);
+        this.printScale = value / 100;
+        try {
+            localStorage.setItem(STORAGE_PREFIX + 'saxophone-print-scale', String(value));
+        } catch (error) {
+            // Приватный режим: просто не запоминаем
+        }
+        return value;
+    }
+
     rememberPrintWrap(value) {
         const wrap = value === 'notes' ? 'notes' : 'measures';
         this.printWrap = wrap;
@@ -5509,6 +5537,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
         const wrapSelect = document.getElementById('print-wrap');
         if (wrapSelect) wrapSelect.value = this.printWrap;
+
+        const scaleSelect = document.getElementById('print-scale');
+        if (scaleSelect) scaleSelect.value = String(Math.round(this.printScale * 100));
 
         // Галочки повторяют то, что сейчас на экране
         if (fingerings) fingerings.checked = !!this.showFingerings;
@@ -5689,6 +5720,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
         const wrapSelect = document.getElementById('print-wrap');
         this.rememberPrintWrap(wrapSelect ? wrapSelect.value : this.printWrap);
+
+        const scaleSelect = document.getElementById('print-scale');
+        this.rememberPrintScale(scaleSelect ? scaleSelect.value : this.printScale * 100);
 
         // Аппликатуры и названия нот на бумаге: по галочкам, а не по тому,
         // что видно сейчас
