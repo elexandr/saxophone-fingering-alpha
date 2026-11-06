@@ -28,10 +28,12 @@ const DURATION_LADDER = [1, 2, 4, 8, 16];
 const PRINT_SYSTEM_SCALE = 0.67;
 // Ширина карточки аппликатуры на бумаге (до общего масштаба): так на
 // строку А4 встаёт 4-5 тактов, а карточки остаются читаемыми
-const PRINT_IMAGE_SIZE = 60;
+const PRINT_IMAGE_SIZE = 48;
+// Сколько места оставляем над станом на высокие ноты и штили
+const PRINT_STAFF_MAX_TOP = 20;
 // Сколько места под станом на бумаге: три линейки до ряда аппликатур
 // (на экране там же лежат подписи нот и запас под прокрутку)
-const PRINT_STAFF_BOTTOM_GAP = 3 * STAFF_LINE_SPACING;
+const PRINT_STAFF_BOTTOM_GAP = 50; // 2,5 линейки: три на экране, на бумаге плотнее
 
 // Отступ от верха области, когда показываем звучащую строку
 const PLAYBACK_SCROLL_MARGIN = 8;
@@ -3468,7 +3470,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // сколько просят сами ноты (высокие ноты и их штили), снизу -
         // ровно три линейки: на экране запасы больше (окошко длительности
         // и подписи), на бумаге они только растягивают страницу
-        const printOffset = metrics.rawOffset === undefined ? metrics.offset : metrics.rawOffset;
+        // Верх ограничиваем: иначе одна высокая нота растягивает блок и
+        // на страницу перестаёт влезать четвёртая строка
+        const rawPrintOffset = metrics.rawOffset === undefined ? metrics.offset : metrics.rawOffset;
+        const printOffset = Math.max(rawPrintOffset, -PRINT_STAFF_MAX_TOP);
         const offset = this.printLayout ? printOffset : metrics.offset;
         const printHeight = Math.max(140, STAFF_MAIN_BOTTOM - printOffset + PRINT_STAFF_BOTTOM_GAP);
         const height = this.printLayout ? printHeight : metrics.height;
@@ -5696,8 +5701,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
         this.closePrintDialog();
 
-        // Кладём на бумагу только стан: остальное скрыто стилями печати
+        // Кладём на бумагу только стан: остальное скрыто стилями печати.
+        // Стан перекладываем под лист здесь же: событие beforeprint есть
+        // не всегда, а без него строки остаются экранными
         this.updateStatus(t('status.printing'));
+        this.beforePrint();
         window.print();
         return true;
     }

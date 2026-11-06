@@ -1988,12 +1988,12 @@ body.print-layout .staff-area {
     /* Заголовок над станом */
     .print-header {
         display: block !important;
-        padding: 4mm 0 2mm;
+        padding: 2mm 0 1mm;
     }
 
     #print-title {
         margin: 0;
-        font-size: 18pt;
+        font-size: 15pt;
         font-weight: 700;
         text-align: center;
         color: #000000;
@@ -2001,9 +2001,9 @@ body.print-layout .staff-area {
 
     /* Размер и темп под названием */
     .print-meta {
-        margin-top: 1.5mm;
+        margin-top: 0.8mm;
         text-align: center;
-        font-size: 10pt;
+        font-size: 9pt;
         color: #3c3c3c;
     }
 
@@ -2056,7 +2056,7 @@ body.print-layout .staff-area {
     /* Блоки друг к другу ближе, без лишних полей */
     .system {
         border-radius: 0 !important;
-        margin-bottom: 3mm !important;
+        margin-bottom: 2mm !important;
     }
 
     .staff-container {
