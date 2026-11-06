@@ -114,6 +114,10 @@ class FullRangeStaffManager {
         this.appSoundShift = 0;
         // Сдвиг звука инструмента: насколько саксофон звучит выше или ниже аппликатуры
         this.saxShift = 0;
+        // Перенос строк на бумаге: 'measures' - только по границам тактов,
+        // 'notes' - по нотам, тогда такт может начаться на одной строке,
+        // а кончиться на следующей. Выбор помнится между запусками
+        this.printWrap = this.savedPrintWrap();
         // Показывать звучащие ноты: включено - подписи звучащих нот,
         // выключено - написанные (истина тут у пианино)
         this.soundingNames = false;
@@ -975,8 +979,26 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     
     // Разбивка мелодии на строки. Граница строки - граница такта.
     // Такт, который не влезает в строку целиком, режется принудительно.
+    // Разбивка по нотам: строка режется по счёту нот, поэтому такт может
+    // начаться на одной строке, а кончиться на следующей
+    computeSystemsByNotes() {
+        const perSystem = this.elementsPerSystem();
+        const systems = [];
+
+        for (let index = 0; index < this.notes.length; index += perSystem) {
+            systems.push(this.notes.slice(index, index + perSystem));
+        }
+
+        return systems.length ? systems : [[]];
+    }
+
     computeSystems() {
         if (!this.notes.length) return [[]];
+
+        // На бумаге перенос можно делать и внутри такта
+        if (this.printLayout && this.printWrap === 'notes') {
+            return this.computeSystemsByNotes();
+        }
         
         const perSystem = this.elementsPerSystem();
         const systems = [];
@@ -5429,9 +5451,37 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         }
     }
 
-    // Подпись под заголовком: размер и темп
+    // Подпись под заголовком: размер, темп и сдвиг инструмента
     printMetaText() {
-        return t('print.meta', { signature: this.timeSignature, tempo: this.tempo });
+        const shift = Number(this.saxShift) || 0;
+        const shiftText = shift > 0 ? '+' + shift : String(shift);
+
+        return t('print.meta', {
+            signature: this.timeSignature,
+            tempo: this.tempo,
+            shift: shiftText
+        });
+    }
+
+    // Запомненный способ переноса строк
+    savedPrintWrap() {
+        try {
+            const value = localStorage.getItem(STORAGE_PREFIX + 'saxophone-print-wrap');
+            return value === 'notes' ? 'notes' : 'measures';
+        } catch (error) {
+            return 'measures';
+        }
+    }
+
+    rememberPrintWrap(value) {
+        const wrap = value === 'notes' ? 'notes' : 'measures';
+        this.printWrap = wrap;
+        try {
+            localStorage.setItem(STORAGE_PREFIX + 'saxophone-print-wrap', wrap);
+        } catch (error) {
+            // Приватный режим: просто не запоминаем
+        }
+        return wrap;
     }
 
     openPrintDialog() {
@@ -5451,6 +5501,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // Размер и темп видны сразу: они печатаются рядом с заголовком
         const meta = document.getElementById('print-dialog-meta');
         if (meta) meta.textContent = this.printMetaText();
+
+        const wrapSelect = document.getElementById('print-wrap');
+        if (wrapSelect) wrapSelect.value = this.printWrap;
 
         // Галочки повторяют то, что сейчас на экране
         if (fingerings) fingerings.checked = !!this.showFingerings;
@@ -5626,8 +5679,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const metaNode = document.getElementById('print-meta');
         if (metaNode) metaNode.textContent = this.printMetaText();
 
-        // Заголовок запоминаем: в следующий раз он подставится сам
+        // Заголовок и способ переноса запоминаем: в следующий раз подставятся сами
         this.rememberPrintTitle(title);
+
+        const wrapSelect = document.getElementById('print-wrap');
+        this.rememberPrintWrap(wrapSelect ? wrapSelect.value : this.printWrap);
 
         // Аппликатуры и названия нот на бумаге: по галочкам, а не по тому,
         // что видно сейчас
