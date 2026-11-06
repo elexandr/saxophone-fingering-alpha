@@ -24,6 +24,9 @@ const HISTORY_LIMIT = 50;
 // Alt+вверх и Alt+вниз. Точки в неё не входят: их ставят отдельно, кнопками
 // в окошке длительности
 const DURATION_LADDER = [1, 2, 4, 8, 16];
+// Ширина карточки аппликатуры на бумаге: вдвое мельче экранной, иначе
+// на строку А4 помещается один такт, а не три-четыре
+const PRINT_IMAGE_SIZE = 44;
 
 // Отступ от верха области, когда показываем звучащую строку
 const PLAYBACK_SCROLL_MARGIN = 8;
@@ -874,6 +877,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     
     // Сколько высоты остаётся под строку: окно минус шапка, панель и подвал
     viewportFreeHeight() {
+        // На бумаге высоты хватает: уменьшать стан незачем, иначе
+        // линейки в 2px превращаются в бледную паутинку
+        if (this.printLayout) return 100000;
+
         let chrome = 0;
         ['.app-header', '.staff-header', '.app-footer'].forEach(selector => {
             const node = document.querySelector(selector);
@@ -888,6 +895,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     // раскладку, поэтому ширина задаётся обратной долей - и строка
     // по-прежнему занимает всю ширину экрана, просто мельче.
     systemScale() {
+        // На бумаге масштаб всегда 1: строки раскладываются как есть
+        if (this.printLayout) return 1;
+
         const metrics = this.systemMetrics();
         const required = metrics.height + FINGERING_ROW_HEIGHT + 34;
         const available = this.viewportFreeHeight();
@@ -914,8 +924,21 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     }
     
     // Сколько элементов влезает в одну строку (минус место под ключ)
+    // Ширина под одной нотой: на бумаге карточки мельче, поэтому в
+    // строку влезает не один такт, а три-четыре
+    slotWidth() {
+        const size = this.printLayout ? PRINT_IMAGE_SIZE : this.imageSize;
+        return size + 2;
+    }
+
+    // Высота карточки аппликатуры: на экране 200 px, на бумаге мельче
+    cardHeight() {
+        if (!this.printLayout) return 200;
+        return Math.round(200 * PRINT_IMAGE_SIZE / Math.max(1, this.imageSize));
+    }
+
     elementsPerSystem() {
-        const slot = this.imageSize + 2;
+        const slot = this.slotWidth();
         
         // Знак ноты шире половины шага при узких картинках: он по центру ноты
         // и выступает на 30px вправо. Плюс 2px запаса на разделитель такта.
@@ -1101,7 +1124,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         if (!this.notes.length) return null;
 
         const measure = this.measureBeats();
-        const slot = this.imageSize + 2;
+        const slot = this.slotWidth();
         let total = 0;
         this.notes.forEach(element => { total += this.elementBeats(element); });
 
@@ -3043,10 +3066,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 spacer.className = 'fingering-spacer';
                 spacer.setAttribute('data-note-id', note.id);
                 spacer.style.boxSizing = 'border-box';
-                spacer.style.width = (this.imageSize + 2) + 'px';
+                spacer.style.width = this.slotWidth() + 'px';
                 spacer.style.margin = '0px';
                 spacer.style.padding = '0px';
-                spacer.style.height = '200px';
+                spacer.style.height = this.cardHeight() + 'px';
                 container.appendChild(spacer);
                 return;
             }
@@ -3063,11 +3086,15 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             // достаточно, чтобы шаг карточек разошёлся с шагом нот,
             // а расхождение копится от первой ноты к последней.
             card.style.boxSizing = 'border-box';
-            card.style.width = (this.imageSize + 2) + 'px';
+            card.style.width = this.slotWidth() + 'px';
             card.style.margin = '0px';
             card.style.padding = '0px';
-            // Высота зависит от наличия вариантов: 200px для одной аппликатуры, 230px для нескольких вариантов
-            const cardHeight = note.hasFingering && note.variants > 1 ? '230px' : '200px';
+            // Высота зависит от наличия вариантов: 200px для одной аппликатуры,
+            // 230px для нескольких. На бумаге карточка мельче, а панель
+            // вариантов не печатается, поэтому высота идёт от её ширины
+            const cardHeight = this.printLayout
+                ? this.cardHeight() + 'px'
+                : (note.hasFingering && note.variants > 1 ? '230px' : '200px');
             card.style.height = cardHeight;
             card.style.display = 'flex';
             card.style.flexDirection = 'column';
@@ -3354,7 +3381,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         
         this.applySystemScale();
         
-        const slot = this.imageSize + 2;
+        const slot = this.slotWidth();
         
         systems.forEach((system, systemIndex) => {
 
@@ -3658,7 +3685,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.clearNotationMarks();
         
         const marks = this.computeBarLines();
-        const slot = this.imageSize + 2;
+        const slot = this.slotWidth();
         const height = STAFF_MAIN_BOTTOM - STAFF_MAIN_TOP;
         
         // Точки, занятые знаками репризы: знак сам содержит тактовую черту
@@ -3706,7 +3733,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     // такта. Считаем по долям, а не по нотам: граница такта может попасть внутрь
     // длинной ноты, и тогда ноты в начале такта просто нет.
     renderMeasureNumbers(marks) {
-        const slot = this.imageSize + 2;
+        const slot = this.slotWidth();
         const measure = this.measureBeats();
         let beat = 0;
         let nextNumber = 0;
@@ -5371,11 +5398,13 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const modal = document.getElementById('print-modal');
         const input = document.getElementById('print-title-input');
         const fingerings = document.getElementById('print-fingerings');
+        const names = document.getElementById('print-names');
         if (!modal) return false;
 
         if (input) input.value = this.printTitleDefault();
-        // Галочка повторяет то, что сейчас на экране
+        // Галочки повторяют то, что сейчас на экране
         if (fingerings) fingerings.checked = !!this.showFingerings;
+        if (names) names.checked = !!this.showNoteNames;
 
         modal.hidden = false;
         if (input) {
@@ -5396,18 +5425,142 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         if (this.printLayout) return;
         this.printLayout = true;
 
+        // Ширину листа задаём прямо в пикселях: раскладка меряет
+        // контейнер, а он на экране ещё экранной ширины
+        this.applyPageWidth();
+
         this.printScrollLeft = this.scrollLeftNow || 0;
         document.body.classList.add('print-layout');
 
-        // Пересчитываем строки уже под ширину бумаги
+        // Пересчитываем строки под ширину бумаги и в масштабе 1: так
+        // на строке помещается несколько тактов, а знаки крупные
         this.relayout();
+        this.prepareClefsForPrint();
     }
 
     afterPrint() {
         if (!this.printLayout) return;
         this.printLayout = false;
         document.body.classList.remove('print-layout');
+        this.restorePageWidth();
+        this.restoreClefsAfterPrint();
         this.relayout();
+    }
+
+    // Ширина рабочей области под А4: 210 мм минус поля по 10 мм, при 96 dpi
+    printPageWidth() {
+        return Math.round((210 - 20) / 25.4 * 96);
+    }
+
+    applyPageWidth() {
+        const width = this.printPageWidth() + 'px';
+        const main = document.querySelector('.main-content');
+        const area = document.querySelector('.staff-area');
+
+        if (main) {
+            this.pageMainWidth = main.style.width;
+            this.pageMainPadding = main.style.padding;
+            main.style.width = width;
+            main.style.padding = '0';
+        }
+        if (area) {
+            this.pageAreaWidth = area.style.width;
+            this.pageAreaFlex = area.style.flex;
+            area.style.width = width;
+            area.style.flex = 'none';
+        }
+    }
+
+    restorePageWidth() {
+        const main = document.querySelector('.main-content');
+        const area = document.querySelector('.staff-area');
+
+        if (main) {
+            main.style.width = this.pageMainWidth || '';
+            main.style.padding = this.pageMainPadding || '';
+        }
+        if (area) {
+            area.style.width = this.pageAreaWidth || '';
+            area.style.flex = this.pageAreaFlex || '';
+        }
+    }
+
+    // Скрипичный ключ знаком U+1D11E. На экране он рисуется шрифтом, но
+    // в PDF браузер этот знак иногда теряет (глиф из дополнительной
+    // плоскости Unicode не попадает в файл) и ключ пропадает. Поэтому
+    // перед печатью рисуем его в canvas и подставляем картинкой
+    prepareClefsForPrint() {
+        const clefs = Array.from(document.querySelectorAll('.staff-clef'));
+        clefs.forEach(clef => {
+            if (clef.dataset.printImage) return;
+
+            try {
+                const style = window.getComputedStyle(clef);
+                const fontSize = parseFloat(style.fontSize) || 116;
+                const glyph = clef.textContent;
+                const probe = document.createElement('canvas').getContext('2d');
+                probe.font = style.font;
+                const metrics = probe.measureText(glyph);
+
+                // Метрики чернил: по ним картинка встанет ровно туда, где
+                // стоял глиф. При line-height: 1 базовая линия лежит на
+                // 0.915em от верха строки
+                const ascent = metrics.actualBoundingBoxAscent || fontSize * 0.8;
+                const descent = metrics.actualBoundingBoxDescent || fontSize * 0.23;
+                const left = metrics.actualBoundingBoxLeft || 0;
+                const right = metrics.actualBoundingBoxRight || metrics.width;
+
+                const inkWidth = Math.max(1, Math.ceil(left + right) + 2);
+                const inkHeight = Math.max(1, Math.ceil(ascent + descent) + 2);
+                const dpr = 3;
+
+                const canvas = document.createElement('canvas');
+                canvas.width = inkWidth * dpr;
+                canvas.height = inkHeight * dpr;
+
+                const context = canvas.getContext('2d');
+                context.scale(dpr, dpr);
+                context.font = style.font;
+                context.fillStyle = '#000000';
+                context.textBaseline = 'alphabetic';
+                context.fillText(glyph, left + 1, ascent + 1);
+
+                // Сдвигаем верх картинки туда, где начинались чернила
+                const top = parseFloat(style.top) || 0;
+                const inkTop = top + fontSize * 0.915 - ascent;
+
+                clef.dataset.printImage = canvas.toDataURL('image/png');
+                clef.dataset.printText = glyph;
+                clef.dataset.printWidth = String(inkWidth);
+                clef.dataset.printHeight = String(inkHeight);
+                clef.dataset.printTop = style.top;
+                clef.textContent = '';
+                clef.style.width = inkWidth + 'px';
+                clef.style.height = inkHeight + 'px';
+                clef.style.top = inkTop + 'px';
+                clef.style.backgroundImage = 'url(' + clef.dataset.printImage + ')';
+                clef.style.backgroundSize = '100% 100%';
+                clef.style.backgroundRepeat = 'no-repeat';
+            } catch (error) {
+                // Не вышло - печатаем как есть, шрифтом
+            }
+        });
+    }
+
+    restoreClefsAfterPrint() {
+        document.querySelectorAll('.staff-clef').forEach(clef => {
+            if (!clef.dataset.printImage) return;
+            clef.textContent = clef.dataset.printText || '\uD834\uDD1E';
+            clef.style.backgroundImage = '';
+            clef.style.width = '';
+            clef.style.height = '';
+            clef.style.lineHeight = '';
+            clef.style.top = clef.dataset.printTop || '';
+            delete clef.dataset.printImage;
+            delete clef.dataset.printText;
+            delete clef.dataset.printWidth;
+            delete clef.dataset.printHeight;
+        });
     }
 
     // Готовим стан к бумаге и зовём окно печати
@@ -5419,9 +5572,14 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const titleNode = document.getElementById('print-title');
         if (titleNode) titleNode.textContent = title;
 
-        // Аппликатуры на бумаге: по галочке, а не по тому, что видно сейчас
+        // Аппликатуры и названия нот на бумаге: по галочкам, а не по тому,
+        // что видно сейчас
         const withFingerings = fingerings ? fingerings.checked : !!this.showFingerings;
         document.body.classList.toggle('print-with-fingerings', withFingerings);
+
+        const names = document.getElementById('print-names');
+        const withNames = names ? names.checked : !!this.showNoteNames;
+        document.body.classList.toggle('print-with-names', withNames);
 
         this.closePrintDialog();
 

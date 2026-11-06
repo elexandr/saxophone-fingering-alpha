@@ -1911,10 +1911,15 @@ body.many-selected .note-anchor .duration-panel {
 
 /* Раскладка под бумагу: ширина листа А4 минус поля. Класс ставится
    перед печатью, чтобы строки считались уже под эту ширину */
-body.print-layout .staff-area,
 body.print-layout .main-content {
-    width: 730px !important;
-    max-width: 730px !important;
+    display: block !important;
+    padding: 0 !important;
+}
+
+body.print-layout .staff-area {
+    width: 718px !important;
+    max-width: 718px !important;
+    flex: none !important;
 }
 
 @page {
@@ -1940,16 +1945,21 @@ body.print-layout .main-content {
         padding: 0 !important;
         background: #ffffff !important;
         height: auto !important;
+        min-height: 0 !important;
         overflow: visible !important;
     }
 
-    .app,
+    /* Корень приложения - .app-container: у него высота экрана и
+       overflow: hidden. Без снятия этих двух свойств браузер печатает
+       только первый экран, а остальное обрезает */
+    .app-container,
     .main-content,
     .staff-area,
     .staff-container {
         display: block !important;
         height: auto !important;
         max-height: none !important;
+        min-height: 0 !important;
         overflow: visible !important;
         margin: 0 !important;
         padding: 0 !important;
@@ -1980,8 +1990,16 @@ body.print-layout .main-content {
         flex: none !important;
     }
 
+    /* Строки печатаются блоками: гибкая раскладка (flex) в PDF не
+       режется на страницы, и всё после первой страницы пропадало */
+    .systems {
+        display: block !important;
+    }
+
     /* Строка целиком на одной странице */
     .system {
+        display: block !important;
+        margin-bottom: 5mm;
         break-inside: avoid;
         page-break-inside: avoid;
     }
@@ -1994,6 +2012,52 @@ body.print-layout .main-content {
     .fingering-card {
         break-inside: avoid;
         page-break-inside: avoid;
+    }
+
+    /* Ряд аппликатур на бумаге ниже: карточки мельче экранных */
+    .fingerings-row {
+        min-height: 0 !important;
+    }
+
+    /* Названия нот печатаются, только если отмечено в окне печати */
+    body:not(.print-with-names) .note-label {
+        display: none !important;
+    }
+
+    /* Линейки, черты и ключ печатаются чёрными в полную силу: на экране
+       они тонкие, на бумаге тонкое превращается в бледную паутинку */
+    html,
+    body {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    /* Пять основных линеек - чёрные и плотные. Верхние и нижние
+       направляющие (они создаются с opacity 0.5) на бумаге не нужны:
+       на экране это подсказка, на бумаге - сетка, которой в нотах нет */
+    .staff-line {
+        background: #000000 !important;
+        opacity: 1 !important;
+        height: 2px !important;
+    }
+
+    .staff-line[style*="opacity: 0.5"] {
+        display: none !important;
+    }
+
+    .bar-line {
+        background: #000000 !important;
+    }
+
+    .system {
+        border-color: #8a94a6 !important;
+    }
+
+    /* Ключ при печати подставляется картинкой (см. prepareClefsForPrint) */
+    .staff-clef {
+        color: #000000 !important;
+        background-repeat: no-repeat;
+        background-size: 100% 100%;
     }
 
     /* Подсветки и окошки правки на бумаге не нужны */
