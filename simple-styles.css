@@ -2055,10 +2055,11 @@ body.print-layout .staff-area {
     /* Пять основных линеек - чёрные и плотные. Верхние и нижние
        направляющие (они создаются с opacity 0.5) на бумаге не нужны:
        на экране это подсказка, на бумаге - сетка, которой в нотах нет */
+    /* 3px при масштабе печати 0.67 дают на бумаге нормальные 2px */
     .staff-line {
         background: #000000 !important;
         opacity: 1 !important;
-        height: 2px !important;
+        height: 3px !important;
     }
 
     .staff-line[style*="opacity: 0.5"] {
