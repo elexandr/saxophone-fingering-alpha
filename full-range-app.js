@@ -5402,9 +5402,36 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
     // Заголовок по умолчанию: имя открытого файла или просто «Ноты»
     printTitleDefault() {
+        // Прошлый заголовок помним: чаще всего печатают одну и ту же вещь
+        const saved = this.savedPrintTitle();
+        if (saved) return saved;
+
         const name = this.currentFileName || '';
         const base = name.replace(/\.[^.]+$/, '');
         return base || t('print.defaultTitle');
+    }
+
+    // Запомненный заголовок печати: живёт в браузере между запусками
+    savedPrintTitle() {
+        try {
+            return localStorage.getItem(STORAGE_PREFIX + 'saxophone-print-title') || '';
+        } catch (error) {
+            return '';
+        }
+    }
+
+    rememberPrintTitle(title) {
+        const value = String(title || '').trim();
+        try {
+            if (value) localStorage.setItem(STORAGE_PREFIX + 'saxophone-print-title', value);
+        } catch (error) {
+            // Приватный режим: просто не запоминаем
+        }
+    }
+
+    // Подпись под заголовком: размер и темп
+    printMetaText() {
+        return t('print.meta', { signature: this.timeSignature, tempo: this.tempo });
     }
 
     openPrintDialog() {
@@ -5420,6 +5447,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         if (!modal) return false;
 
         if (input) input.value = this.printTitleDefault();
+
+        // Размер и темп видны сразу: они печатаются рядом с заголовком
+        const meta = document.getElementById('print-dialog-meta');
+        if (meta) meta.textContent = this.printMetaText();
+
         // Галочки повторяют то, что сейчас на экране
         if (fingerings) fingerings.checked = !!this.showFingerings;
         if (names) names.checked = !!this.showNoteNames;
@@ -5589,6 +5621,13 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
         const titleNode = document.getElementById('print-title');
         if (titleNode) titleNode.textContent = title;
+
+        // Рядом с названием - размер и темп
+        const metaNode = document.getElementById('print-meta');
+        if (metaNode) metaNode.textContent = this.printMetaText();
+
+        // Заголовок запоминаем: в следующий раз он подставится сам
+        this.rememberPrintTitle(title);
 
         // Аппликатуры и названия нот на бумаге: по галочкам, а не по тому,
         // что видно сейчас

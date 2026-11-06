@@ -1905,6 +1905,12 @@ body.many-selected .note-anchor .duration-panel {
     margin-bottom: 14px;
 }
 
+.print-dialog-meta {
+    margin: 0 0 12px;
+    font-size: 12px;
+    color: #6b7785;
+}
+
 .modal-actions {
     display: flex;
     gap: 8px;
@@ -1980,6 +1986,14 @@ body.print-layout .staff-area {
         font-weight: 700;
         text-align: center;
         color: #000000;
+    }
+
+    /* Размер и темп под названием */
+    .print-meta {
+        margin-top: 1.5mm;
+        text-align: center;
+        font-size: 10pt;
+        color: #3c3c3c;
     }
 
     /* Прокрутку снимаем, но раскладку стана НЕ трогаем: строки уже
