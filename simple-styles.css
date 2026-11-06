@@ -1911,6 +1911,18 @@ body.many-selected .note-anchor .duration-panel {
     color: #6b7785;
 }
 
+/* Поле масштаба печати: узкое, чтобы не растягивало окно */
+.print-scale-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.print-scale-row .number-input {
+    width: 64px;
+    text-align: center;
+}
+
 .print-select {
     width: 100%;
     box-sizing: border-box;

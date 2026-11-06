@@ -5538,8 +5538,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const wrapSelect = document.getElementById('print-wrap');
         if (wrapSelect) wrapSelect.value = this.printWrap;
 
-        const scaleSelect = document.getElementById('print-scale');
-        if (scaleSelect) scaleSelect.value = String(Math.round(this.printScale * 100));
+        const scaleField = document.getElementById('print-scale');
+        if (scaleField) scaleField.value = String(Math.round(this.printScale * 100));
 
         // Галочки повторяют то, что сейчас на экране
         if (fingerings) fingerings.checked = !!this.showFingerings;
@@ -5721,8 +5721,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const wrapSelect = document.getElementById('print-wrap');
         this.rememberPrintWrap(wrapSelect ? wrapSelect.value : this.printWrap);
 
-        const scaleSelect = document.getElementById('print-scale');
-        this.rememberPrintScale(scaleSelect ? scaleSelect.value : this.printScale * 100);
+        const scaleField = document.getElementById('print-scale');
+        this.rememberPrintScale(scaleField ? scaleField.value : this.printScale * 100);
 
         // Аппликатуры и названия нот на бумаге: по галочкам, а не по тому,
         // что видно сейчас
@@ -6476,6 +6476,31 @@ document.addEventListener('DOMContentLoaded', () => {
     const printGoButton = document.getElementById('btn-print-go');
     if (printGoButton) {
         printGoButton.addEventListener('click', () => staffManager.printNow());
+    }
+
+    // Масштаб печати: поле принимает любой процент, кнопки двигают по пять
+    const scaleMinusButton = document.getElementById('btn-print-scale-minus');
+    const scalePlusButton = document.getElementById('btn-print-scale-plus');
+    const scaleFieldInput = document.getElementById('print-scale');
+
+    function stepPrintScale(delta) {
+        if (!scaleFieldInput) return;
+        const current = staffManager.clampPrintScale(Number(scaleFieldInput.value) || 100);
+        scaleFieldInput.value = String(staffManager.clampPrintScale(current + delta));
+    }
+
+    if (scaleMinusButton) {
+        scaleMinusButton.addEventListener('click', () => stepPrintScale(-5));
+    }
+    if (scalePlusButton) {
+        scalePlusButton.addEventListener('click', () => stepPrintScale(5));
+    }
+
+    // Введённое руками сразу приводим к допустимым границам
+    if (scaleFieldInput) {
+        scaleFieldInput.addEventListener('change', () => {
+            scaleFieldInput.value = String(staffManager.clampPrintScale(scaleFieldInput.value));
+        });
     }
 
     const printCancelButton = document.getElementById('btn-print-cancel');
