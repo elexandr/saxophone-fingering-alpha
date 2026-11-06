@@ -1874,3 +1874,148 @@ body.many-selected .note-anchor .duration-panel {
 .accompaniment-name { flex: 0 0 78px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .accompaniment-track input[type="range"] { flex: 1; min-width: 36px; }
 
+
+/* === Печать и PDF ===
+   На бумаге остаётся только стан: панель, шапка, подвал и окна скрыты.
+   Заголовок печати на экране не виден и появляется только при печати. */
+.print-header {
+    display: none;
+}
+
+.print-field {
+    display: block;
+    margin-bottom: 10px;
+    font-size: 13px;
+}
+
+.print-field span {
+    display: block;
+    margin-bottom: 4px;
+    color: #495057;
+}
+
+.print-field input {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.print-fingerings-label {
+    margin-bottom: 14px;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+/* Раскладка под бумагу: ширина листа А4 минус поля. Класс ставится
+   перед печатью, чтобы строки считались уже под эту ширину */
+body.print-layout .staff-area,
+body.print-layout .main-content {
+    width: 730px !important;
+    max-width: 730px !important;
+}
+
+@page {
+    size: A4 portrait;
+    margin: 10mm;
+}
+
+@media print {
+    /* Всё, что не относится к нотам, на бумаге не нужно */
+    .app-header,
+    .staff-header,
+    .control-panel,
+    .app-footer,
+    .modal,
+    .consent,
+    .count-in {
+        display: none !important;
+    }
+
+    /* Страница: белый фон, без полей и прокрутки */
+    html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #ffffff !important;
+        height: auto !important;
+        overflow: visible !important;
+    }
+
+    .app,
+    .main-content,
+    .staff-area,
+    .staff-container {
+        display: block !important;
+        height: auto !important;
+        max-height: none !important;
+        overflow: visible !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #ffffff !important;
+    }
+
+    /* Заголовок над станом */
+    .print-header {
+        display: block !important;
+        padding: 4mm 0 2mm;
+    }
+
+    #print-title {
+        margin: 0;
+        font-size: 18pt;
+        font-weight: 700;
+        text-align: center;
+        color: #000000;
+    }
+
+    /* Прокрутку снимаем, но раскладку стана НЕ трогаем: строки уже
+       разложены по пикселям, и переопределение высот ломает знаки */
+    .scrollable-area,
+    .systems {
+        overflow: visible !important;
+        height: auto !important;
+        max-height: none !important;
+        flex: none !important;
+    }
+
+    /* Строка целиком на одной странице */
+    .system {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+
+    /* Аппликатуры печатаются, только если отмечено в окне печати */
+    body:not(.print-with-fingerings) .fingerings-row {
+        display: none !important;
+    }
+
+    .fingering-card {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+
+    /* Подсветки и окошки правки на бумаге не нужны */
+    .note-anchor.in-fragment,
+    .note-anchor.fragment-start,
+    .note-anchor.fragment-end {
+        background: none !important;
+        box-shadow: none !important;
+    }
+
+    .note-anchor.fragment-start .note-label,
+    .note-anchor.fragment-end .note-label {
+        background: none !important;
+        color: #000000 !important;
+    }
+
+    .note-anchor .duration-panel {
+        display: none !important;
+    }
+
+    /* Стрелки переключения вариантов аппликатуры на бумаге не нужны */
+    .fingering-controls {
+        display: none !important;
+    }
+}

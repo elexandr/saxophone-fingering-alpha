@@ -1568,7 +1568,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     updateFileButtons() {
         const hasNotes = this.notes.length > 0;
         
-        ['btn-save', 'btn-midi-save'].forEach(id => {
+        ['btn-save', 'btn-midi-save', 'btn-print'].forEach(id => {
             const button = document.getElementById(id);
             if (button) button.disabled = !hasNotes;
         });
@@ -5350,6 +5350,87 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         }
     }
     
+    // === Печать и PDF ===
+    // Печатает браузер: в окне печати можно выбрать принтер или «Сохранить
+    // как PDF». Заголовок правится в окне перед печатью, аппликатуры
+    // печатаются, если они показаны на экране
+
+    // Заголовок по умолчанию: имя открытого файла или просто «Ноты»
+    printTitleDefault() {
+        const name = this.currentFileName || '';
+        const base = name.replace(/\.[^.]+$/, '');
+        return base || t('print.defaultTitle');
+    }
+
+    openPrintDialog() {
+        if (!this.notes.length) {
+            this.updateStatus(t('status.addNotesFirst'));
+            return false;
+        }
+
+        const modal = document.getElementById('print-modal');
+        const input = document.getElementById('print-title-input');
+        const fingerings = document.getElementById('print-fingerings');
+        if (!modal) return false;
+
+        if (input) input.value = this.printTitleDefault();
+        // Галочка повторяет то, что сейчас на экране
+        if (fingerings) fingerings.checked = !!this.showFingerings;
+
+        modal.hidden = false;
+        if (input) {
+            input.focus();
+            input.select();
+        }
+        return true;
+    }
+
+    closePrintDialog() {
+        const modal = document.getElementById('print-modal');
+        if (modal) modal.hidden = true;
+    }
+
+    // Перед печатью стан перекладывается под ширину листа: иначе строки
+    // посчитаны под экран, и браузер сжимает их целиком - знаки мельчают
+    beforePrint() {
+        if (this.printLayout) return;
+        this.printLayout = true;
+
+        this.printScrollLeft = this.scrollLeftNow || 0;
+        document.body.classList.add('print-layout');
+
+        // Пересчитываем строки уже под ширину бумаги
+        this.relayout();
+    }
+
+    afterPrint() {
+        if (!this.printLayout) return;
+        this.printLayout = false;
+        document.body.classList.remove('print-layout');
+        this.relayout();
+    }
+
+    // Готовим стан к бумаге и зовём окно печати
+    printNow() {
+        const input = document.getElementById('print-title-input');
+        const fingerings = document.getElementById('print-fingerings');
+        const title = (input && input.value.trim()) || this.printTitleDefault();
+
+        const titleNode = document.getElementById('print-title');
+        if (titleNode) titleNode.textContent = title;
+
+        // Аппликатуры на бумаге: по галочке, а не по тому, что видно сейчас
+        const withFingerings = fingerings ? fingerings.checked : !!this.showFingerings;
+        document.body.classList.toggle('print-with-fingerings', withFingerings);
+
+        this.closePrintDialog();
+
+        // Кладём на бумагу только стан: остальное скрыто стилями печати
+        this.updateStatus(t('status.printing'));
+        window.print();
+        return true;
+    }
+
     // Сохранение в MusicXML: формат обмена, его читают MuseScore, Sibelius,
     // Audiveris. Наше состояние уходит в расширения sax-fingering-*
     saveMusicXmlFile() {
@@ -6072,6 +6153,34 @@ document.addEventListener('DOMContentLoaded', () => {
         audioClearButton.addEventListener('click', () => staffManager.clearAudioTrack());
     }
 
+
+    // Печать: кнопка в панели, окно с заголовком и кнопки окна
+    const printButton = document.getElementById('btn-print');
+    if (printButton) {
+        printButton.addEventListener('click', () => staffManager.openPrintDialog());
+    }
+
+    const printGoButton = document.getElementById('btn-print-go');
+    if (printGoButton) {
+        printGoButton.addEventListener('click', () => staffManager.printNow());
+    }
+
+    const printCancelButton = document.getElementById('btn-print-cancel');
+    if (printCancelButton) {
+        printCancelButton.addEventListener('click', () => staffManager.closePrintDialog());
+    }
+
+    // Браузер сообщает, когда начинается и заканчивается печать:
+    // перекладываем стан под ширину листа и возвращаем обратно
+    window.addEventListener('beforeprint', () => staffManager.beforePrint());
+    window.addEventListener('afterprint', () => staffManager.afterPrint());
+
+    const printModal = document.getElementById('print-modal');
+    if (printModal) {
+        printModal.addEventListener('click', (e) => {
+            if (e.target === printModal) staffManager.closePrintDialog();
+        });
+    }
 
     // Фрагмент для разучивания: отмечаем выделенную ноту началом или концом
     const fragmentStartButton = document.getElementById('btn-fragment-start');
