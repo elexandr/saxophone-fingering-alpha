@@ -354,6 +354,137 @@
 
     // elements: элементы приложения по порядку
     // options: { tempo, timeSignature, title, settings, meta }
+    // === Партии сопровождения ===
+    // Сопровождение приходит готовыми нотами: { midi, startBeat, beats } в долях.
+    // Раскладываем их по тактам, добивая паузами, чтобы выходил честный
+    // MusicXML: каждая партия обязана иметь столько же тактов, сколько мелодия
+
+    function pitchXml(midi) {
+        var names = ['C', 'C', 'D', 'D', 'E', 'F', 'F', 'G', 'G', 'A', 'A', 'B'];
+        var alters = [0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0];
+        var value = Math.max(0, Math.min(127, Math.round(midi)));
+        var octave = Math.floor(value / 12) - 1;
+        var index = value % 12;
+        var lines = [];
+        lines.push('                <pitch>');
+        lines.push('                    <step>' + names[index] + '</step>');
+        if (alters[index]) {
+            lines.push('                    <alter>' + (alters[index] > 0 ? 1 : -1) + '</alter>');
+        }
+        lines.push('                    <octave>' + octave + '</octave>');
+        lines.push('                </pitch>');
+        return lines;
+    }
+
+    // Тип ноты по длительности в долях: ближайшая ступень из лесенки
+    function typeForBeats(beats) {
+        var table = [
+            { beats: 4, type: 'whole' },
+            { beats: 3, type: 'half', dots: 1 },
+            { beats: 2, type: 'half' },
+            { beats: 1.5, type: 'quarter', dots: 1 },
+            { beats: 1, type: 'quarter' },
+            { beats: 0.75, type: 'eighth', dots: 1 },
+            { beats: 0.5, type: 'eighth' },
+            { beats: 0.25, type: '16th' }
+        ];
+        for (var i = 0; i < table.length; i++) {
+            if (Math.abs(beats - table[i].beats) < 1e-6) return table[i];
+        }
+        return beats > 2 ? table[0] : table[5];
+    }
+
+    function restLines(beats) {
+        var ticks = Math.max(1, Math.round(beats * DIVISIONS));
+        var info = typeForBeats(beats);
+        var lines = [];
+        lines.push('            <note>');
+        lines.push('                <rest/>');
+        lines.push('                <duration>' + ticks + '</duration>');
+        lines.push('                <voice>1</voice>');
+        lines.push('                <type>' + info.type + '</type>');
+        if (info.dots) lines.push('                <dot/>');
+        lines.push('            </note>');
+        return lines;
+    }
+
+    // Такты партии сопровождения: ноты по местам, пустоты закрыты паузами
+    function accompanimentMeasures(notes, size, measureCount) {
+        var byMeasure = {};
+
+        (notes || []).forEach(function (note) {
+            var start = Number(note.startBeat) || 0;
+            var index = Math.floor(start / size + 1e-6);
+            if (index < 0) return;
+            if (!byMeasure[index]) byMeasure[index] = [];
+            byMeasure[index].push({
+                midi: note.midi,
+                start: start - index * size,
+                beats: Math.max(0.01, Number(note.beats) || 0.25)
+            });
+        });
+
+        var measures = [];
+
+        for (var index = 0; index < measureCount; index++) {
+            var items = (byMeasure[index] || []).slice().sort(function (a, b) {
+                if (a.start !== b.start) return a.start - b.start;
+                return b.midi - a.midi;
+            });
+
+            var lines = [];
+            var cursor = 0;
+            var position = 0;
+
+            while (position < items.length) {
+                var groupStart = items[position].start;
+                if (groupStart - cursor > 0.01) {
+                    restLines(groupStart - cursor).forEach(function (line) { lines.push(line); });
+                    cursor = groupStart;
+                }
+
+                // Ноты одного начала - аккорд: первая с длительностью,
+                // остальные с пометкой chord
+                var group = [];
+                while (position < items.length && Math.abs(items[position].start - groupStart) < 1e-6) {
+                    group.push(items[position]);
+                    position++;
+                }
+
+                var longest = 0;
+                group.forEach(function (item) {
+                    longest = Math.max(longest, Math.min(item.beats, size - groupStart));
+                });
+                if (longest <= 0.01) continue;
+
+                group.forEach(function (item, groupIndex) {
+                    var beats = Math.max(0.01, Math.min(item.beats, size - groupStart));
+                    var ticks = Math.max(1, Math.round(beats * DIVISIONS));
+                    var info = typeForBeats(beats);
+
+                    lines.push('            <note>');
+                    pitchXml(item.midi).forEach(function (line) { lines.push(line); });
+                    lines.push('                <duration>' + ticks + '</duration>');
+                    if (groupIndex > 0) lines.push('                <chord/>');
+                    lines.push('                <voice>1</voice>');
+                    lines.push('                <type>' + info.type + '</type>');
+                    if (info.dots) lines.push('                <dot/>');
+                    lines.push('            </note>');
+                });
+
+                cursor = Math.max(cursor, groupStart + longest);
+            }
+
+            if (cursor < size - 1e-6) {
+                restLines(size - cursor).forEach(function (line) { lines.push(line); });
+            }
+
+            measures.push(lines);
+        }
+
+        return measures;
+    }
+
     function build(options) {
         options = options || {};
         var elements = options.elements || [];
@@ -384,10 +515,18 @@
 
         identificationXml(settings, meta).forEach(function (line) { out.push(line); });
 
+        var extraParts = Array.isArray(options.parts) ? options.parts : [];
+
         out.push('    <part-list>');
         out.push('        <score-part id="P1">');
         out.push('            <part-name>Saxophone</part-name>');
         out.push('        </score-part>');
+
+        extraParts.forEach(function (part, index) {
+            out.push('        <score-part id="P' + (index + 2) + '">');
+            out.push('            <part-name>' + escapeText(part.name || ('Part ' + (index + 2))) + '</part-name>');
+            out.push('        </score-part>');
+        });
         out.push('    </part-list>');
         out.push('    <part id="P1">');
 
@@ -443,6 +582,36 @@
         });
 
         out.push('    </part>');
+
+        // Партии сопровождения: по ним же видно темп и размер
+        var totalMeasures = measures.length;
+        extraParts.forEach(function (part) {
+            totalMeasures = Math.max(totalMeasures,
+                Math.ceil((part.measureCount || 0) || 0));
+        });
+
+        extraParts.forEach(function (part, index) {
+            var partMeasures = accompanimentMeasures(
+                part.notes || [], measureBeats, totalMeasures);
+
+            out.push('    <part id="P' + (index + 2) + '">');
+
+            partMeasures.forEach(function (measureLines, measureIndex) {
+                out.push('        <measure number="' + (measureIndex + 1) + '">');
+
+                if (measureIndex === 0) {
+                    // Сопровождение в концертной высоте: без транспозиции
+                    attributesXml(settings, options.timeSignature, 0, settings.keyFifths)
+                        .forEach(function (line) { out.push(line); });
+                }
+
+                measureLines.forEach(function (line) { out.push(line); });
+                out.push('        </measure>');
+            });
+
+            out.push('    </part>');
+        });
+
         out.push('</score-partwise>');
         out.push('');
 

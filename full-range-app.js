@@ -5768,7 +5768,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 fingeringSet: (typeof FINGERING_SET_ID !== 'undefined') ? FINGERING_SET_ID : ''
             },
             // Паузы-сетка по длине записи в файл не идут
-            elements: this.notes.filter(note => !note.gridRest)
+            elements: this.notes.filter(note => !note.gridRest),
+            // Сопровождение - отдельными партиями, в той высоте, в какой звучит
+            parts: this.accompanimentTracksForExport().map(track => ({
+                name: track.name,
+                notes: track.notes
+            }))
         });
 
         const blob = new Blob([xml], { type: 'application/vnd.recordare.musicxml+xml' });
@@ -5781,7 +5786,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         link.remove();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
 
-        this.updateStatus(t('status.savedMusicXml'));
+        this.updateStatus(t('status.savedMusicXml', {
+            parts: 1 + this.accompanimentTracksForExport().length
+        }));
         this.scheduleAutosave();
         return true;
     }
@@ -5862,7 +5869,22 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 return false;
             }
             
+            // Мелодия и сопровождение идут отдельными дорожками: иначе
+            // сохранённый файл терял всё, что было под мелодией
+            const accompaniment = this.accompanimentTracksForExport();
+            const tracks = [{
+                name: 'Saxophone',
+                notes: notes,
+                channel: 0
+            }].concat(accompaniment.map(track => ({
+                name: track.name,
+                notes: track.notes,
+                drum: track.drum,
+                volume: track.volume
+            })));
+
             const bytes = Midi.build({
+                tracks: tracks.length > 1 ? tracks : null,
                 notes: notes,
                 tempo: this.tempo,
                 timeSignature: this.timeSignature
@@ -5879,7 +5901,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
             
-            this.updateStatus(t('status.midiSaved', { count: notes.length }));
+            this.updateStatus(t('status.midiSaved', {
+                count: notes.length,
+                tracks: 1 + accompaniment.length
+            }));
             return true;
         } catch (error) {
             this.updateStatus(t('status.saveError', { message: error.message }));
@@ -5887,6 +5912,44 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         }
     }
     
+    // Дорожки сопровождения для сохранения: сгруппированы по дорожкам
+    // исходного файла и сдвинуты так, как звучат сейчас (сдвиг сопровождения
+    // плюс «все вверх/вниз»). Темп и сдвиги уходят в файл вместе с ними
+    accompanimentTracksForExport() {
+        const shift = (Number(this.accompanimentShift) || 0) + (Number(this.allTransposeShift) || 0);
+        const groups = new Map();
+
+        (this.accompaniment || []).forEach(note => {
+            const key = String(note.trackIndex === undefined || note.trackIndex === null
+                ? (note.trackName || '0') : note.trackIndex);
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    key: key,
+                    name: note.trackName || t('midi.track', { n: groups.size + 1 }),
+                    drum: !!note.drum,
+                    notes: []
+                });
+            }
+
+            const group = groups.get(key);
+            const settings = this.accompanimentSettings ? this.accompanimentSettings[key] : null;
+            if (settings && settings.muted) {
+                // Выключенная дорожка остаётся в файле тихой: громкость 0
+                group.volume = 0;
+            } else if (settings && typeof settings.volume === 'number') {
+                group.volume = settings.volume;
+            }
+
+            group.notes.push({
+                midi: Math.max(0, Math.min(127, Math.round(note.midi + shift))),
+                startBeat: note.startBeat || 0,
+                beats: note.beats || 1
+            });
+        });
+
+        return Array.from(groups.values());
+    }
+
     // Имя открытого файла в подвале: видно, с чем работаешь
     setCurrentFile(name, size) {
         this.currentFileName = name || '';

@@ -852,55 +852,123 @@
         return [(length >> 24) & 0xff, (length >> 16) & 0xff, (length >> 8) & 0xff, length & 0xff];
     }
     
-    // Сборка MIDI-файла. Формат 0, одна дорожка: его читают все музыкальные
-    // программы. Саксофонной части в файле нет - MIDI её не хранит.
-    // notes: [{ midi, startBeat, beats }]
-    function build(data) {
-        var source = data || {};
-        var notes = source.notes || [];
-        var tempo = Math.max(20, Math.min(400, Math.round(source.tempo || 80)));
-        var ticks = TICKS_PER_QUARTER;
-        
-        // На одном тике сначала идут служебные события, потом снятие звука и
-        // только затем взятие: иначе две одинаковые ноты подряд слипнутся
+    // События одной дорожки: служебные на нулевом тике, потом ноты.
+    // На одном тике сначала служебные, потом снятие звука и только затем
+    // взятие: иначе две одинаковые ноты подряд слипнутся
+    function trackEvents(options) {
         var events = [];
-        events.push({ tick: 0, order: -1, bytes: metaText('Saxophone Fingerings') });
-        events.push({ tick: 0, order: -1, bytes: metaTempo(tempo) });
-        events.push({ tick: 0, order: -1, bytes: metaSignature(source.timeSignature) });
-        
-        notes.forEach(function (note) {
+        var channel = options.channel || 0;
+
+        if (options.name) {
+            events.push({ tick: 0, order: -2, bytes: metaText(options.name) });
+        }
+        if (options.tempo) {
+            events.push({ tick: 0, order: -1, bytes: metaTempo(options.tempo) });
+        }
+        if (options.signature) {
+            events.push({ tick: 0, order: -1, bytes: metaSignature(options.signature) });
+        }
+        if (options.program !== undefined && options.program !== null) {
+            var program = Math.max(0, Math.min(127, Math.round(options.program)));
+            events.push({ tick: 0, order: -1, bytes: [0xc0 | channel, program] });
+        }
+        if (options.volume !== undefined && options.volume !== null) {
+            var volume = Math.max(0, Math.min(127, Math.round(options.volume * 127)));
+            events.push({ tick: 0, order: -1, bytes: [0xb0 | channel, 7, volume] });
+        }
+
+        (options.notes || []).forEach(function (note) {
             var midi = Math.max(0, Math.min(127, Math.round(note.midi)));
-            var start = Math.max(0, Math.round((note.startBeat || 0) * ticks));
-            var length = Math.max(1, Math.round((note.beats || 1) * ticks));
-            
-            events.push({ tick: start, order: 1, bytes: [0x90, midi, 100] });
-            events.push({ tick: start + length, order: 0, bytes: [0x80, midi, 64] });
+            var start = Math.max(0, Math.round((note.startBeat || 0) * TICKS_PER_QUARTER));
+            var length = Math.max(1, Math.round((note.beats || 1) * TICKS_PER_QUARTER));
+
+            events.push({ tick: start, order: 1, bytes: [0x90 | channel, midi, 100] });
+            events.push({ tick: start + length, order: 0, bytes: [0x80 | channel, midi, 64] });
         });
-        
+
         events.sort(function (a, b) {
             if (a.tick !== b.tick) return a.tick - b.tick;
             return a.order - b.order;
         });
-        
-        var track = [];
+
+        var bytes = [];
         var previous = 0;
-        
+
         events.forEach(function (event) {
-            track.push.apply(track, writeVlq(event.tick - previous));
-            track.push.apply(track, event.bytes);
+            bytes.push.apply(bytes, writeVlq(event.tick - previous));
+            bytes.push.apply(bytes, event.bytes);
             previous = event.tick;
         });
-        
-        track.push(0x00, 0xff, 0x2f, 0x00);
-        
+
+        bytes.push(0x00, 0xff, 0x2f, 0x00);
+        return bytes;
+    }
+
+    function trackChunk(trackBytes) {
+        var bytes = [];
+        bytes.push.apply(bytes, asciiBytes('MTrk'));
+        bytes.push.apply(bytes, sizeBytes(trackBytes.length));
+        bytes.push.apply(bytes, trackBytes);
+        return bytes;
+    }
+
+    // Сборка MIDI-файла. Без tracks - формат 0, одна дорожка, как раньше.
+    // С tracks - формат 1: дирижёрская дорожка (темп и размер) плюс по
+    // дорожке на партию, чтобы сопровождение не терялось при сохранении.
+    // tracks: [{ name, notes: [{ midi, startBeat, beats }], channel, program, volume, drum }]
+    function build(data) {
+        var source = data || {};
+        var tempo = Math.max(20, Math.min(400, Math.round(source.tempo || 80)));
+        var ticks = TICKS_PER_QUARTER;
+        var parts = Array.isArray(source.tracks) && source.tracks.length
+            ? source.tracks
+            : null;
+
         var bytes = [];
         bytes.push.apply(bytes, asciiBytes('MThd'));
-        bytes.push.apply(bytes, [0, 0, 0, 6, 0, 0, 0, 1]);
+
+        if (!parts) {
+            var single = trackEvents({
+                name: 'Saxophone Fingerings',
+                notes: source.notes || [],
+                tempo: tempo,
+                signature: source.timeSignature
+            });
+            bytes.push.apply(bytes, [0, 0, 0, 6, 0, 0, 0, 1]);
+            bytes.push.apply(bytes, [(ticks >> 8) & 0xff, ticks & 0xff]);
+            bytes.push.apply(bytes, trackChunk(single));
+            return bytes;
+        }
+
+        // Дирижёрская дорожка: только служебные события
+        var conductor = trackEvents({
+            name: 'Saxophone Fingerings',
+            notes: [],
+            tempo: tempo,
+            signature: source.timeSignature
+        });
+
+        var trackCount = parts.length + 1;
+        bytes.push.apply(bytes, [0, 0, 0, 6, 0, 1,
+            (trackCount >> 8) & 0xff, trackCount & 0xff]);
         bytes.push.apply(bytes, [(ticks >> 8) & 0xff, ticks & 0xff]);
-        bytes.push.apply(bytes, asciiBytes('MTrk'));
-        bytes.push.apply(bytes, sizeBytes(track.length));
-        bytes.push.apply(bytes, track);
-        
+        bytes.push.apply(bytes, trackChunk(conductor));
+
+        parts.forEach(function (part, index) {
+            // Канал 9 занят ударными: его не отдаём обычным дорожкам
+            var channel = part.drum ? 9 : Math.min(15, index + 1);
+            if (!part.drum && channel === 9) channel = Math.min(15, index + 2);
+
+            var trackBytes = trackEvents({
+                name: part.name || ('Track ' + (index + 1)),
+                notes: part.notes || [],
+                channel: channel,
+                program: part.program,
+                volume: part.volume
+            });
+            bytes.push.apply(bytes, trackChunk(trackBytes));
+        });
+
         return bytes;
     }
     
