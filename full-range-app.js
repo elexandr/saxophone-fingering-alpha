@@ -135,6 +135,10 @@ class FullRangeStaffManager {
         // Показывать звучащие ноты: включено - подписи звучащих нот,
         // выключено - написанные (истина тут у пианино)
         this.soundingNames = false;
+        // Черта у форшлагов: как в файле (slash), всегда или никогда.
+        // В конвертированных файлах slash="yes" стоит у всех форшлагов,
+        // а в печатных нотах многие из них идут без черты
+        this.graceSlashMode = 'file';
         this.metronome = true; // по умолчанию щелчки включены
         this.metronomeVolume = 0.6;
         this.countIn = true; // отсчёт перед началом включён по умолчанию
@@ -1443,10 +1447,34 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             stemUp: element.stemUp,
             accidental: element.accidental,
             grace: !!element.isGrace,
-            graceSlash: !!element.graceSlash
+            graceSlash: this.graceSlashFor(element)
         });
     }
     
+    // Нужна ли черта у форшлага: по файлу, всегда или никогда
+    graceSlashFor(element) {
+        if (!element || !element.isGrace) return false;
+        if (this.graceSlashMode === 'always') return true;
+        if (this.graceSlashMode === 'never') return false;
+        return !!element.graceSlash;
+    }
+
+    // Перерисовка знаков после смены режима
+    applyGraceSlashMode(mode, silent = false) {
+        this.graceSlashMode = (mode === 'always' || mode === 'never') ? mode : 'file';
+
+        const field = document.getElementById('grace-slash-mode');
+        if (field && field.value !== this.graceSlashMode) field.value = this.graceSlashMode;
+
+        this.notes.forEach(note => {
+            if (note.isGrace && note.element) this.refreshElement(note);
+        });
+        this.drawNotationCurves();
+
+        if (!silent) this.scheduleAutosave();
+        return this.graceSlashMode;
+    }
+
     // Название длительности на текущем языке
     durationLabel(value) {
         const key = 'duration.' + value;
@@ -4402,6 +4430,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 appSoundShift: this.appSoundShift,
                 saxShift: this.saxShift,
                 soundingNames: this.soundingNames,
+                graceSlashMode: this.graceSlashMode,
                 countIn: this.countIn,
                 displayMode: this.displayMode,
                 tempo: this.tempo,
@@ -4800,6 +4829,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
         if (settings && settings.soundingNames !== undefined) {
             this.soundingNames = !!settings.soundingNames;
+        }
+
+        // Черта у форшлагов
+        if (settings && settings.graceSlashMode !== undefined) {
+            this.applyGraceSlashMode(settings.graceSlashMode, true);
         }
 
         // Ключевые знаки из сохранения
@@ -6589,6 +6623,15 @@ document.addEventListener('DOMContentLoaded', () => {
         staffManager.updateNoteNamesVisibility(e.target.checked);
         staffManager.scheduleAutosave();
     });
+
+    // Черта у форшлагов: как в файле, всегда или никогда
+    const graceSlashField = document.getElementById('grace-slash-mode');
+    if (graceSlashField) {
+        graceSlashField.value = staffManager.graceSlashMode;
+        graceSlashField.addEventListener('change', (e) => {
+            staffManager.applyGraceSlashMode(e.target.value);
+        });
+    }
     
     // Режим отображения альтераций: переписываем уже добавленные ноты
     document.querySelectorAll('input[name="accidentals-mode"]').forEach(radio => {

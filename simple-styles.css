@@ -1925,6 +1925,18 @@ body.many-selected .note-anchor .duration-panel {
     text-align: center;
 }
 
+/* Выпадающие списки в панели настроек */
+.select-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4px 6px;
+    font-size: 12px;
+    border: 1px solid #cbd5e0;
+    border-radius: 5px;
+    background: #ffffff;
+    color: #2d3748;
+}
+
 .print-select {
     width: 100%;
     box-sizing: border-box;
