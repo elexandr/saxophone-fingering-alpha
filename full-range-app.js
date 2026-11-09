@@ -2890,15 +2890,27 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.scheduleAutosave();
     }
     
-    // Ключевые знаки после транспонирования: сдвиг на полутон прибавляет
-    // знак, а за пределом семи знаков берём энгармонический ключ
+    // Ключевые знаки после транспонирования. Сдвиг на полутон - это семь
+    // шагов по кругу квинт: D-dur (2 диеза) вверх на полутон даёт E-dur
+    // (4 диеза), а ре-диез-мажор (9) записывается как ми-бемоль-мажор (-3)
     transposedKeyFifths(direction) {
         const step = Number(direction) || 0;
         if (!step) return this.keyFifths;
 
-        let fifths = (Number(this.keyFifths) || 0) + step;
+        let fifths = (Number(this.keyFifths) || 0) + 7 * step;
+
+        // Держимся диапазона семи знаков
         while (fifths > 7) fifths -= 12;
         while (fifths < -7) fifths += 12;
+
+        // Из двух равноправных записей берём ту, что совпадает с режимом
+        // альтераций: в диезах ключ с диезами, в бемолях - с бемолями
+        if (this.displayMode === 'flats') {
+            if (fifths > 0 && fifths - 12 >= -7) fifths -= 12;
+        } else if (fifths < 0 && fifths + 12 <= 7) {
+            fifths += 12;
+        }
+
         return fifths;
     }
 
@@ -2981,8 +2993,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // Обновляем аппликатуры
         this.updateAllFingerings();
         
-        // Ключевые знаки рисуются слоем поверх стана: их надо перерисовать
+        // Ключевые знаки рисуются слоем поверх стана (drawNotationCurves).
+        // Перерисовываем сразу: сама по себе раскладка не запускается, и
+        // знаки остались бы от прежней тональности
         this.renderNotationMarks();
+        this.drawNotationCurves();
 
         this.updateStatus(t('status.transposed', { n: changedCount }));
         this.scheduleAutosave();

@@ -116,12 +116,19 @@
             'xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' + inner + '</svg>';
     }
 
-    // Черта через штиль: у форшлага она показывает короткий звук
+    // Черта через штиль форшлага. Координаты - как у самой ноты:
+    // штиль вверх идёт по x=+8 от 0 до -44, вниз - по x=-8 от 0 до +44,
+    // черта пересекает его посередине
     function graceSlashMarkup(stemUp) {
-        var y1 = stemUp ? -32 : 0;
-        var y2 = stemUp ? -16 : 16;
-        return '<line class="glyph-grace-slash" x1="1" y1="' + y1 +
-            '" x2="19" y2="' + y2 + '" stroke="#111111" stroke-width="2" stroke-linecap="round"/>';
+        // Посередине штиля и с запасом от флажка, иначе черта торчит
+        // из знака и читается как лишняя палочка
+        var x1 = stemUp ? 2 : -14;
+        var y1 = stemUp ? -22 : 10;
+        var x2 = stemUp ? 14 : -2;
+        var y2 = stemUp ? -10 : 22;
+        return '<line class="glyph-grace-slash" x1="' + x1 + '" y1="' + y1 +
+            '" x2="' + x2 + '" y2="' + y2 +
+            '" stroke="#111111" stroke-width="1.6" stroke-linecap="round"/>';
     }
 
     // Глиф ноты. options: { duration, dotted, stemUp, accidental, grace }
@@ -150,9 +157,9 @@
         var body = parts.join('');
 
         if (grace) {
-            // Масштаб вокруг головки: она остаётся на своей линейке
-            body = '<g transform="translate(0 6) scale(0.62) translate(0 -6)">' + body + '</g>' +
-                graceSlashMarkup(stemUp);
+            // Масштаб вокруг головки: она остаётся на своей линейке,
+            // а черта форшлага входит в тот же уменьшенный знак
+            body = '<g transform="scale(0.62)">' + body + graceSlashMarkup(stemUp) + '</g>';
         }
 
         return wrap(decoration + body);
