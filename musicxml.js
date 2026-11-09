@@ -224,6 +224,10 @@
             if (!pitch) return [];
 
             notes.push(indent + '<note>');
+
+            // По схеме MusicXML <grace/> идёт до <pitch/>
+            if (element.isGrace) notes.push(indent + '    <grace/>');
+
             notes.push(indent + '    <pitch>');
             notes.push(indent + '        <step>' + pitch.step + '</step>');
             if (pitch.alter !== 0) {
@@ -231,7 +235,11 @@
             }
             notes.push(indent + '        <octave>' + pitch.octave + '</octave>');
             notes.push(indent + '    </pitch>');
-            notes.push(indent + '    <duration>' + duration.ticks + '</duration>');
+
+            // Форшлаг времени не занимает: вместо <duration> только <grace/>
+            if (!element.isGrace) {
+                notes.push(indent + '    <duration>' + duration.ticks + '</duration>');
+            }
 
             if (options.tieStart) notes.push(indent + '    <tie type="start"/>');
             if (options.tieStop) notes.push(indent + '    <tie type="stop"/>');
@@ -872,6 +880,17 @@
         var cursor = 0;      // докуда дошла линейная запись
         var lastNote = null; // предыдущая нота - для наложений
 
+        // Форшлаги времени не занимают: они стоят перед своей нотой.
+        // Собираем их по моменту начала, чтобы вставить перед основной нотой
+        var graceByBeat = {};
+        items.forEach(function (item) {
+            if (!item.isGrace || item.tab) return;
+            var key = Math.round(item.startBeat * 1000);
+            if (!graceByBeat[key]) graceByBeat[key] = [];
+            graceByBeat[key].push(item);
+        });
+        skippedGrace = 0;
+
         // Записываемые паузы от целой вниз: разрыв в сорок долей нельзя
         // нарисовать одной паузой, поэтому набираем сумму из нескольких
         var REST_LADDER = [
@@ -922,6 +941,26 @@
             var gap = item.startBeat - cursor;
             if (gap > 0.01) pushRest(gap);
 
+            // Форшлаги этой ноты идут перед ней и времени не занимают
+            var graceKey = Math.round(item.startBeat * 1000);
+            var graces = graceByBeat[graceKey];
+            if (graces && !item.isRest) {
+                graces.forEach(function (grace) {
+                    elements.push({
+                        isRest: false,
+                        isGrace: true,
+                        noteName: grace.noteName || null,
+                        displayName: grace.noteName || null,
+                        // Восьмая: у форшлага знак мельче, время нулевое
+                        duration: 8,
+                        dotted: grace.dotted || 0,
+                        currentVariant: Number(grace.variant) || 1,
+                        beats: 0
+                    });
+                });
+                delete graceByBeat[graceKey];
+            }
+
             var element = {
                 isRest: item.isRest,
                 noteName: item.noteName || null,
@@ -964,6 +1003,12 @@
             elements.push(element);
             lastNote = element;
             cursor = item.startBeat + item.beats;
+        });
+
+        // Форшлаг без своей ноты (например, перед паузой) пропал:
+        // о таком честно скажем в предупреждении
+        Object.keys(graceByBeat).forEach(function (key) {
+            skippedGrace += graceByBeat[key].length;
         });
 
         // Хвост пьесы: если партия замолкает раньше конца, добираем паузой -

@@ -78,6 +78,8 @@
     // а настоящее время лежит в <duration>; разбор кладёт его в поле beats.
     // Если верить одному <type>, мелодия уезжает относительно сопровождения
     function beatsOf(element) {
+        // Форшлаг звучит до своей ноты и в такте места не занимает
+        if (element && element.isGrace) return 0;
         if (element && typeof element.beats === 'number' && element.beats > 0) return element.beats;
         return beatsFor(element && element.duration, element && element.dotted, element && element.tuplet);
     }
@@ -687,6 +689,15 @@
                     if (step.skip || step.element.isRest) continue;
                     var frequency = noteToFrequency(step.element.noteName, self.transpose);
                     if (!frequency) continue;
+
+                    if (step.element.isGrace) {
+                        // Форшлаг звучит коротко и до своей ноты: иначе он
+                        // совпал бы с ней и превратился в аккорд
+                        var graceStart = Math.max(ctx.currentTime, step.startAt - 0.09);
+                        self.scheduleNote(frequency, graceStart, Math.min(0.09, step.startAt - graceStart + 0.05), self.melodyBus);
+                        continue;
+                    }
+
                     self.scheduleNote(frequency, step.startAt,
                         step.seconds * (step.joined ? 1 : 0.92), self.melodyBus);
                 }

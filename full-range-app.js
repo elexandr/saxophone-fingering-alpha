@@ -1347,8 +1347,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     // Создаёт DOM элемента: знак ноты или паузы, окошко длительности и подпись названия
     buildElementDom(element) {
         const anchor = document.createElement('div');
-        anchor.className = 'note-anchor fade-in';
+        anchor.className = 'note-anchor fade-in' + (element.isGrace ? ' is-grace' : '');
         anchor.id = element.id;
+        if (element.isGrace) anchor.setAttribute('data-grace', '1');
         anchor.setAttribute('data-type', element.isRest ? 'rest' : 'note');
             // Высокие ноты: окошко длительности показываем ниже ноты,
             // сверху ему не хватает места и его закрывает шапка строки
@@ -1419,7 +1420,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             duration: element.duration,
             dotted: element.dotted,
             stemUp: element.stemUp,
-            accidental: element.accidental
+            accidental: element.accidental,
+            grace: !!element.isGrace
         });
     }
     
@@ -2888,10 +2890,26 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.scheduleAutosave();
     }
     
+    // Ключевые знаки после транспонирования: сдвиг на полутон прибавляет
+    // знак, а за пределом семи знаков берём энгармонический ключ
+    transposedKeyFifths(direction) {
+        const step = Number(direction) || 0;
+        if (!step) return this.keyFifths;
+
+        let fifths = (Number(this.keyFifths) || 0) + step;
+        while (fifths > 7) fifths -= 12;
+        while (fifths < -7) fifths += 12;
+        return fifths;
+    }
+
     transposeAllNotes(direction) {
         // «Все вверх» и «Все вниз» двигают и сопровождение: оно должно ехать
         // вместе с мелодией. Сдвиг инструмента к нему не применяется
         this.allTransposeShift += Number(direction) || 0;
+
+        // Вместе с нотами едет и тональность: иначе у нот другой ключ,
+        // а знаки при ключе остаются прежними
+        this.keyFifths = this.transposedKeyFifths(direction);
         this.applyAccompanimentShift();
         if (this.notes.length === 0) {
             this.updateStatus(t('status.noNotesToTranspose'));
@@ -2963,6 +2981,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // Обновляем аппликатуры
         this.updateAllFingerings();
         
+        // Ключевые знаки рисуются слоем поверх стана: их надо перерисовать
+        this.renderNotationMarks();
+
         this.updateStatus(t('status.transposed', { n: changedCount }));
         this.scheduleAutosave();
         return changedCount > 0;
@@ -4315,6 +4336,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 // всегда выражает, а играть надо по настоящему времени
                 beats: typeof note.beats === 'number' ? note.beats : null,
                 currentVariant: note.currentVariant || 1,
+                // Форшлаг времени не занимает: без пометки он станет обычной нотой
+                isGrace: !!note.isGrace,
                 hasBarLine: !!note.hasBarLine,
                 repeatStart: !!note.repeatStart,
                 repeatEnd: !!note.repeatEnd
@@ -4334,7 +4357,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 displayMode: this.displayMode,
                 tempo: this.tempo,
                 timeSignature: this.timeSignature,
-                barLineMode: this.barLineMode
+                barLineMode: this.barLineMode,
+                // Ключевые знаки: без них тональность теряется при перезапуске
+                keyFifths: this.keyFifths
             },
             // Сопровождение живёт отдельно от стана, но пропадать при
             // перезагрузке страницы не должно: сохраняем его и его настройки
@@ -4416,8 +4441,15 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             element.slurStart = !!item.slurStart;
             element.slurEnd = !!item.slurEnd;
             element.tuplet = item.tuplet || null;
+            // Форшлаг: времени не занимает, знак мельче
+            if (item.isGrace) {
+                element.isGrace = true;
+                element.beats = 0;
+            }
             // Точное время: приходит из MusicXML и из автосохранения
-            if (typeof item.beats === 'number' && item.beats > 0) {
+            if (element.isGrace) {
+                element.beats = 0;
+            } else if (typeof item.beats === 'number' && item.beats > 0) {
                 element.beats = item.beats;
             } else {
                 delete element.beats;
@@ -4718,6 +4750,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
         if (settings && settings.soundingNames !== undefined) {
             this.soundingNames = !!settings.soundingNames;
+        }
+
+        // Ключевые знаки из сохранения
+        if (settings && typeof settings.keyFifths === 'number') {
+            this.keyFifths = Math.max(-7, Math.min(7, Math.round(settings.keyFifths)));
         }
 
         // Файлы прежних версий хранили обратный флаг: читаем его наоборот
@@ -6245,7 +6282,19 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             // Точное время из файла: записываемая длительность не всегда может
             // его выразить, а играть надо по настоящему времени, иначе мелодия
             // расходится с сопровождением
-            if (item.beats) element.beats = item.beats;
+            // Форшлаг: времени не занимает, знак мельче, играется коротко
+            if (item.isGrace) {
+                element.isGrace = true;
+                element.beats = 0;
+                // Знак перерисовываем сразу: он мельче обычного и с чертой
+                if (element.element) {
+                    element.element.classList.add('is-grace');
+                    element.element.setAttribute('data-grace', '1');
+                }
+                this.refreshElement(element);
+            } else if (item.beats) {
+                element.beats = item.beats;
+            }
             if (item.tiedToNext) element.tiedToNext = true;
             if (item.slurStart) element.slurStart = true;
             if (item.slurEnd) element.slurEnd = true;

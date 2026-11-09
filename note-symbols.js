@@ -116,13 +116,24 @@
             'xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' + inner + '</svg>';
     }
 
-    // Глиф ноты. options: { duration, dotted, stemUp, accidental }
+    // Черта через штиль: у форшлага она показывает короткий звук
+    function graceSlashMarkup(stemUp) {
+        var y1 = stemUp ? -32 : 0;
+        var y2 = stemUp ? -16 : 16;
+        return '<line class="glyph-grace-slash" x1="1" y1="' + y1 +
+            '" x2="19" y2="' + y2 + '" stroke="#111111" stroke-width="2" stroke-linecap="round"/>';
+    }
+
+    // Глиф ноты. options: { duration, dotted, stemUp, accidental, grace }
     function noteSvg(options) {
         options = options || {};
         var duration = durationInfo(options.duration).value;
         var stemUp = options.stemUp !== false;
-        var parts = [haloMarkup(), hitMarkup(), accidentalMarkup(options.accidental),
-            headMarkup(isHollow(duration))];
+        var grace = !!options.grace;
+
+        // Подсветка и зона клика - в полном размере, сам знак у форшлага мельче
+        var decoration = haloMarkup() + hitMarkup();
+        var parts = [accidentalMarkup(options.accidental), headMarkup(isHollow(duration))];
 
         if (duration !== 1) {
             parts.push(stemMarkup(stemUp));
@@ -135,7 +146,16 @@
         if (dots > 0) {
             parts.push(dotMarkup(dots));
         }
-        return wrap(parts.join(''));
+
+        var body = parts.join('');
+
+        if (grace) {
+            // Масштаб вокруг головки: она остаётся на своей линейке
+            body = '<g transform="translate(0 6) scale(0.62) translate(0 -6)">' + body + '</g>' +
+                graceSlashMarkup(stemUp);
+        }
+
+        return wrap(decoration + body);
     }
 
     function restBody(duration) {
