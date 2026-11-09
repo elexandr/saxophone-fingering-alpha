@@ -131,7 +131,7 @@
             '" stroke="#111111" stroke-width="1.6" stroke-linecap="round"/>';
     }
 
-    // Глиф ноты. options: { duration, dotted, stemUp, accidental, grace }
+    // Глиф ноты. options: { duration, dotted, stemUp, accidental, grace, graceSlash }
     function noteSvg(options) {
         options = options || {};
         var duration = durationInfo(options.duration).value;
@@ -157,9 +157,11 @@
         var body = parts.join('');
 
         if (grace) {
-            // Масштаб вокруг головки: она остаётся на своей линейке,
-            // а черта форшлага входит в тот же уменьшенный знак
-            body = '<g transform="scale(0.62)">' + body + graceSlashMarkup(stemUp) + '</g>';
+            // Масштаб вокруг головки: она остаётся на своей линейке.
+            // Черту рисуем только у перечёркнутого форшлага: обычная
+            // appoggiatura в нотах идёт без черты
+            body = '<g transform="scale(0.62)">' + body +
+                (options.graceSlash ? graceSlashMarkup(stemUp) : '') + '</g>';
         }
 
         return wrap(decoration + body);

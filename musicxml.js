@@ -226,7 +226,10 @@
             notes.push(indent + '<note>');
 
             // По схеме MusicXML <grace/> идёт до <pitch/>
-            if (element.isGrace) notes.push(indent + '    <grace/>');
+            if (element.isGrace) {
+                notes.push(indent + '    <grace' +
+                    (element.graceSlash ? ' slash="yes"' : '') + '/>');
+            }
 
             notes.push(indent + '    <pitch>');
             notes.push(indent + '        <step>' + pitch.step + '</step>');
@@ -954,6 +957,8 @@
                         // Восьмая: у форшлага знак мельче, время нулевое
                         duration: 8,
                         dotted: grace.dotted || 0,
+                        // Черта только у acciaccatura
+                        graceSlash: !!grace.graceSlash,
                         currentVariant: Number(grace.variant) || 1,
                         beats: 0
                     });
@@ -1294,6 +1299,9 @@
                 // Ноты и паузы
                 var isChord = /<chord(?=[\s\/>])/.test(inner);
                 var isGrace = /<grace(?=[\s\/>])/.test(inner);
+                // slash="yes" - перечёркнутый форшлаг (acciaccatura),
+                // без него - appoggiatura: она не перечёркивается
+                var graceSlash = /<grace[^>]*slash=[\x22\x27]yes[\x22\x27]/.test(inner);
                 var isRest = /<rest(?=[\s\/>])/.test(inner);
                 var timing = parseTiming(inner);
 
@@ -1330,6 +1338,7 @@
                     isRest: isRest,
                     isChord: isChord,
                     isGrace: isGrace,
+                    graceSlash: graceSlash,
                     voice: textOf(inner, 'voice') || '1',
                     staff: textOf(inner, 'staff') || '1',
                     tab: !!tabStaves[textOf(inner, 'staff') || '1'],

@@ -12,7 +12,17 @@ const STAFF_UPPER_LEDGER_COUNT = 4;
 const STAFF_LOWER_LEDGER_COUNT = 4; // до C3: ниже приложение не работает
 const STAFF_TOP_LEDGER = STAFF_MAIN_TOP - STAFF_UPPER_LEDGER_COUNT * STAFF_LINE_SPACING; // 10
 const STAFF_BOTTOM_LEDGER = STAFF_MAIN_BOTTOM + STAFF_LOWER_LEDGER_COUNT * STAFF_LINE_SPACING; // 330
-const STAFF_CLEF_WIDTH = 72; // место под скрипичный ключ и отступ до первой ноты
+// Место под скрипичный ключ и знаки при ключе. Сама ширина зависит от
+// числа знаков, поэтому это не const: её пересчитывает updateClefZone
+// Кегль ключа: раньше был 116px и наезжал на диезы
+const STAFF_CLEF_SIZE = 96;
+// Где заканчивается сам ключ (его чернила) - с этого места идут знаки
+const STAFF_CLEF_INK_RIGHT = 58;
+// Шаг между знаками при ключе
+const STAFF_KEY_STEP = 10;
+// Отступ от последнего знака до первой ноты
+const STAFF_KEY_GAP = 6;
+let STAFF_CLEF_WIDTH = 60; // пересчитывается под текущую тональность
 // Знак ноты рисуется в рамке 60px по центру ноты, то есть на 30px в каждую сторону
 const GLYPH_HALF_WIDTH = 30;
 // Высота ряда аппликатур при полном масштабе: карточка и панель вариантов
@@ -877,6 +887,17 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.container.appendChild(this.staffTail);
     }
     
+    // Сколько места слева занимает ключ со знаками при ключе
+    updateClefZone() {
+        const count = Math.min(7, Math.abs(Number(this.keyFifths) || 0));
+        // Прежние 72px оставляем как минимум: к ним привыкла вся раскладка.
+        // Знаки при ключе могут потребовать больше места - тогда строка
+        // начинается позже, и ноты не наезжают на ключ
+        const needed = STAFF_CLEF_INK_RIGHT + count * STAFF_KEY_STEP + STAFF_KEY_GAP;
+        STAFF_CLEF_WIDTH = Math.max(72, needed);
+        return STAFF_CLEF_WIDTH;
+    }
+
     // Ширина, доступная под одну строку
     staffWidth() {
         const width = this.container ? this.container.clientWidth : 0;
@@ -1421,7 +1442,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             dotted: element.dotted,
             stemUp: element.stemUp,
             accidental: element.accidental,
-            grace: !!element.isGrace
+            grace: !!element.isGrace,
+            graceSlash: !!element.graceSlash
         });
     }
     
@@ -2796,7 +2818,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
         let shapes = '';
         for (let i = 0; i < count; i++) {
-            const x = 42 + i * 10;
+            const x = STAFF_CLEF_INK_RIGHT + i * STAFF_KEY_STEP;
             const y = rows[i];
             shapes += '<text class="key-sign" x="' + x + '" y="' + (y + 7) + '">' +
                 (sharp ? '\u266F' : '\u266D') + '</text>';
@@ -3429,6 +3451,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     // Раскладка мелодии по строкам: системы, координаты, черты и аппликатуры.
     // Разбивка на строки описана в computeSystems.
     updateNotePositions() {
+        // Место под ключ и знаки при ключе - до расчёта строк: от него
+        // зависит и ширина строки, и положение первой ноты
+        this.updateClefZone();
+
         // Масштаб строки считаем до раскладки: от него зависит, сколько
         // нот помещается в строку на этом экране
         this.systemScaleValue = this.systemScale();
@@ -3469,6 +3495,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             });
         });
         
+        // Ряд аппликатур выравниваем по той же зоне ключа: тональность могла
+        // смениться, и ряд уехал бы от нот
+        this.fingeringContainers.forEach(row => {
+            row.style.paddingLeft = STAFF_CLEF_WIDTH + 'px';
+        });
+
         this.applyStaffMetrics();
         
         // Черты и знаки репризы привязаны к координатам, поэтому перерисовываем их
@@ -4353,6 +4385,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 currentVariant: note.currentVariant || 1,
                 // Форшлаг времени не занимает: без пометки он станет обычной нотой
                 isGrace: !!note.isGrace,
+                // Перечёркнутый форшлаг или appoggiatura
+                graceSlash: !!note.graceSlash,
                 hasBarLine: !!note.hasBarLine,
                 repeatStart: !!note.repeatStart,
                 repeatEnd: !!note.repeatEnd
@@ -4460,6 +4494,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             if (item.isGrace) {
                 element.isGrace = true;
                 element.beats = 0;
+                element.graceSlash = !!item.graceSlash;
             }
             // Точное время: приходит из MusicXML и из автосохранения
             if (element.isGrace) {
@@ -6301,6 +6336,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             if (item.isGrace) {
                 element.isGrace = true;
                 element.beats = 0;
+                // Черта только у перечёркнутого форшлага (slash="yes")
+                element.graceSlash = !!item.graceSlash;
                 // Знак перерисовываем сразу: он мельче обычного и с чертой
                 if (element.element) {
                     element.element.classList.add('is-grace');

@@ -650,10 +650,12 @@ body {
     position: absolute;
     left: 2px;
     /* Завиток ключа должен лежать на линейке G (вторая снизу, y=150):
-       top = (150 + 0.113em) - 0.915em при кегле 116px, то есть 57px */
-    top: 57px;
+       top = (150 + 0.113em) - 0.915em при кегле 96px, то есть 73px.
+       Кегль меньше прежнего на пятую часть: крупный ключ наезжал на
+       знаки при ключе и спорил с ними по весу */
+    top: 73px;
     font-family: 'Segoe UI Symbol', 'Apple Symbols', 'Noto Music', serif;
-    font-size: 116px;
+    font-size: 96px;
     line-height: 1;
     color: #111111;
     pointer-events: none;
