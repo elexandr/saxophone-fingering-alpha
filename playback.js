@@ -384,9 +384,14 @@
     // Настройки дорожки: сдвиги в миллисекундах и скорость в долях единицы
     MelodyPlayer.prototype.setAudioSettings = function (settings) {
         var source = settings || {};
+        // Сдвиги бывают и отрицательными: минус в начале - запись вступает
+        // позже мелодии, минус в конце - доигрывает хвост
+        var clampShift = function (value) {
+            return Math.max(-60000, Math.min(60000, Math.round(Number(value) || 0)));
+        };
         this.audioSettings = {
-            startMs: Math.max(0, Math.min(60000, Number(source.startMs) || 0)),
-            endMs: Math.max(0, Math.min(60000, Number(source.endMs) || 0)),
+            startMs: clampShift(source.startMs),
+            endMs: clampShift(source.endMs),
             rate: Math.max(0.5, Math.min(1.5, Number(source.rate) || 1))
         };
         return this.audioSettings;
@@ -448,10 +453,16 @@
         var settings = this.audioSettingsOrDefault();
         var duration = track.duration || (track.buffer ? track.buffer.duration : 0);
 
-        // Где начинаем в самой записи: сдвиг файла плюс место в мелодии
-        var startPos = Math.max(0, settings.startMs / 1000 + (Number(fromSeconds) || 0));
-        // Где кончаем: конец файла минус сдвиг окончания
+        // Сдвиг начала: плюс - пропустить начало записи, минус - начать
+        // запись позже мелодии (мелодия идёт одна)
+        var rawStart = settings.startMs / 1000 + (Number(fromSeconds) || 0);
+        var lateStart = rawStart < 0 ? -rawStart : 0;
+        var startPos = Math.max(0, rawStart);
+
+        // Сдвиг конца: плюс - не доигрывать конец, минус - доиграть хвост
+        // записи после конца мелодии (limit тогда уходит за конец файла)
         var limit = duration > 0 ? Math.max(0, duration - settings.endMs / 1000) : 0;
+        var tailSeconds = settings.endMs < 0 ? -settings.endMs / 1000 : 0;
         var scoreLength = Math.max(0.05, Number(lengthSeconds) || 0);
 
         if (track.url && typeof Audio === 'function') {
@@ -469,9 +480,11 @@
                     element.currentTime = Math.min(startPos, Math.max(0, duration - 0.05));
                 } catch (error) { /* ещё не готов */ }
 
-                var delay = Math.max(0, (Number(startAt) || this.ctx.currentTime) - this.ctx.currentTime);
+                var delay = Math.max(0, (Number(startAt) || this.ctx.currentTime) - this.ctx.currentTime) + lateStart;
                 var limitMs = limit > startPos ? (limit - startPos) / rate * 1000 : scoreLength * 1000;
-                var playMs = Math.max(50, Math.min(scoreLength / rate * 1000, limitMs));
+                // Хвост записи тоже считаем: при минусе в «Конце» он играет
+                var wantedMs = (scoreLength + tailSeconds) / rate * 1000;
+                var playMs = Math.max(50, Math.min(wantedMs, limitMs));
 
                 try { element.pause(); } catch (error) { /* уже стоит */ }
 
@@ -506,7 +519,7 @@
         source.buffer = buffer;
         source.connect(destination);
 
-        var when = Math.max(Number(startAt) || 0, this.ctx.currentTime + 0.001);
+        var when = Math.max(Number(startAt) || 0, this.ctx.currentTime + 0.001) + lateStart;
         source.start(when, offset, length);
         this.trackVoices([source]);
 

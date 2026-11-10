@@ -5175,16 +5175,22 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             }
         };
 
-        this.audioStartMs = Math.max(0, Math.min(60000, Math.round(read('saxophone-audio-start', 0))));
-        this.audioEndMs = Math.max(0, Math.min(60000, Math.round(read('saxophone-audio-end', 0))));
+        this.audioStartMs = this.clampAudioShift(read('saxophone-audio-start', 0));
+        this.audioEndMs = this.clampAudioShift(read('saxophone-audio-end', 0));
         this.audioRate = Math.max(0.5, Math.min(1.5, read('saxophone-audio-rate', 1)));
         return this.audioSettings();
     }
 
+    clampAudioShift(value) {
+        const number = Math.round(Number(value) || 0);
+        return Math.max(-60000, Math.min(60000, number));
+    }
+
     audioSettings() {
         return {
-            startMs: Math.max(0, Math.min(60000, Math.round(Number(this.audioStartMs) || 0))),
-            endMs: Math.max(0, Math.min(60000, Math.round(Number(this.audioEndMs) || 0))),
+            // Минус: запись начинается позже мелодии или доигрывает хвост
+            startMs: this.clampAudioShift(this.audioStartMs),
+            endMs: this.clampAudioShift(this.audioEndMs),
             rate: Math.max(0.5, Math.min(1.5, Number(this.audioRate) || 1))
         };
     }
@@ -5220,8 +5226,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
         // Сдвиг больше длительности файла бессмысленен
         const duration = this.audioTrackBuffer ? this.audioTrackBuffer.duration : 0;
-        if (start) start.max = String(Math.max(0, Math.round((duration || 60) * 1000)));
-        if (end) end.max = String(Math.max(0, Math.round((duration || 60) * 1000)));
+        const limit = Math.max(60000, Math.round((duration || 60) * 1000));
+        if (start) start.max = String(limit);
+        if (end) end.max = String(limit);
 
         return settings;
     }
