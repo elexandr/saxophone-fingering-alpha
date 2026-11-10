@@ -99,6 +99,9 @@ class FullRangeStaffManager {
         // Аудио-аккомпанемент: файл целиком вместо партий из MIDI/MusicXML
         this.audioTrackBuffer = null;
         this.audioTrackName = '';
+        this.audioTrackUrl = null;
+        // Сдвиги и скорость аудиодорожки: читаем из браузера
+        this.loadAudioSettings();
         this.accompanimentVolume = 1;    // общая громкость сопровождения
         this.accompanimentShift = 0;     // сдвиг только сопровождения, полутонов
         this.allTransposeShift = 0;      // на сколько сдвинули все ноты кнопками «Все вверх/вниз»
@@ -5158,6 +5161,90 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             .reduce((sum, element) => sum + Playback.beatsOf(element), 0);
     }
 
+    // === Настройки аудиодорожки ===
+    // Сдвиг начала и конца в миллисекундах и скорость без смены высоты тона.
+    // Живут в браузере отдельно от мелодии: это настройка файла, а не пьесы
+
+    loadAudioSettings() {
+        const read = (key, fallback) => {
+            try {
+                const value = Number(localStorage.getItem(STORAGE_PREFIX + key));
+                return isFinite(value) && value !== 0 ? value : fallback;
+            } catch (error) {
+                return fallback;
+            }
+        };
+
+        this.audioStartMs = Math.max(0, Math.min(60000, Math.round(read('saxophone-audio-start', 0))));
+        this.audioEndMs = Math.max(0, Math.min(60000, Math.round(read('saxophone-audio-end', 0))));
+        this.audioRate = Math.max(0.5, Math.min(1.5, read('saxophone-audio-rate', 1)));
+        return this.audioSettings();
+    }
+
+    audioSettings() {
+        return {
+            startMs: Math.max(0, Math.min(60000, Math.round(Number(this.audioStartMs) || 0))),
+            endMs: Math.max(0, Math.min(60000, Math.round(Number(this.audioEndMs) || 0))),
+            rate: Math.max(0.5, Math.min(1.5, Number(this.audioRate) || 1))
+        };
+    }
+
+    saveAudioSettings() {
+        const settings = this.audioSettings();
+        this.audioStartMs = settings.startMs;
+        this.audioEndMs = settings.endMs;
+        this.audioRate = settings.rate;
+
+        try {
+            localStorage.setItem(STORAGE_PREFIX + 'saxophone-audio-start', String(settings.startMs));
+            localStorage.setItem(STORAGE_PREFIX + 'saxophone-audio-end', String(settings.endMs));
+            localStorage.setItem(STORAGE_PREFIX + 'saxophone-audio-rate', String(settings.rate));
+        } catch (error) {
+            // Приватный режим: просто не запоминаем
+        }
+
+        this.renderAudioSettings();
+        return settings;
+    }
+
+    // Поля в панели: значения из состояния
+    renderAudioSettings() {
+        const settings = this.audioSettings();
+        const start = document.getElementById('audio-start');
+        const end = document.getElementById('audio-end');
+        const rate = document.getElementById('audio-rate');
+
+        if (start) start.value = String(settings.startMs);
+        if (end) end.value = String(settings.endMs);
+        if (rate) rate.value = String(Math.round(settings.rate * 1000) / 10);
+
+        // Сдвиг больше длительности файла бессмысленен
+        const duration = this.audioTrackBuffer ? this.audioTrackBuffer.duration : 0;
+        if (start) start.max = String(Math.max(0, Math.round((duration || 60) * 1000)));
+        if (end) end.max = String(Math.max(0, Math.round((duration || 60) * 1000)));
+
+        return settings;
+    }
+
+    // Поля поменяли: читаем, зажимаем, запоминаем
+    readAudioSettingsFromFields() {
+        const start = document.getElementById('audio-start');
+        const end = document.getElementById('audio-end');
+        const rate = document.getElementById('audio-rate');
+
+        this.audioStartMs = start ? Number(start.value) || 0 : this.audioStartMs;
+        this.audioEndMs = end ? Number(end.value) || 0 : this.audioEndMs;
+        this.audioRate = rate ? (Number(rate.value) || 100) / 100 : this.audioRate;
+
+        this.saveAudioSettings();
+
+        // Уже играем - сообщаем плееру и перезапускаем с нового места
+        if (this.melodyPlayer) {
+            this.melodyPlayer.setAudioSettings(this.audioSettings());
+        }
+        return this.audioSettings();
+    }
+
     // Сколько тактов занимает запись при текущем темпе: по этому числу
     // строится стан (см. applyAudioGrid). Темп задаёт пользователь,
     // а длина стана следует из длины записи
@@ -5169,12 +5256,18 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     }
 
     // Поставить дорожку: сюда приходит уже расшифрованный звук
-    applyAudioTrack(buffer, name) {
+    applyAudioTrack(buffer, name, url) {
         this.audioTrackBuffer = buffer || null;
         this.audioTrackName = name || '';
+        if (url !== undefined) this.audioTrackUrl = url;
+        if (!buffer) this.audioTrackUrl = null;
 
         if (this.melodyPlayer) {
-            this.melodyPlayer.setAudioTrack(this.audioTrackBuffer, this.audioTrackName);
+            this.melodyPlayer.setAudioTrack(this.audioTrackBuffer, this.audioTrackName, {
+                url: this.audioTrackUrl,
+                duration: this.audioTrackBuffer ? this.audioTrackBuffer.duration : 0
+            });
+            this.melodyPlayer.setAudioSettings(this.audioSettings());
         }
 
         this.renderAudioAccompaniment();
@@ -5218,6 +5311,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
         const hasTrack = this.hasAudioTrack();
         row.hidden = !hasTrack;
+
+        const tuning = document.getElementById('audio-tuning');
+        if (tuning) tuning.hidden = !hasTrack;
+        if (hasTrack) this.renderAudioSettings();
 
         if (clearButton) clearButton.disabled = !hasTrack;
         if (!hasTrack) {
@@ -5308,12 +5405,31 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             return Promise.resolve(false);
         }
 
-        return file.arrayBuffer().then(buffer => new Promise((resolve, reject) => {
-            const promise = ctx.decodeAudioData(buffer, resolve, reject);
-            if (promise && typeof promise.then === 'function') promise.then(resolve, reject);
-        })).then(audioBuffer => {
-            this.applyAudioTrack(audioBuffer, file.name);
-            return true;
+        return file.arrayBuffer().then(bytes => {
+            // Ссылку на файл делаем ДО расшифровки и из копии байтов:
+            // decodeAudioData забирает буфер себе, и Blob из него вышел бы
+            // пустым. Ссылка нужна для <audio>: только он умеет менять
+            // скорость с сохранением высоты тона
+            let url = null;
+            try {
+                const copy = bytes.slice(0);
+                url = URL.createObjectURL(new Blob([copy], { type: file.type || 'audio/mpeg' }));
+            } catch (error) {
+                url = null;
+            }
+
+            return new Promise((resolve, reject) => {
+                const promise = ctx.decodeAudioData(bytes, resolve, reject);
+                if (promise && typeof promise.then === 'function') promise.then(resolve, reject);
+            }).then(audioBuffer => {
+                if (this.audioTrackUrl) {
+                    try { URL.revokeObjectURL(this.audioTrackUrl); } catch (error) { /* уже отозван */ }
+                }
+                this.audioTrackUrl = url;
+
+                this.applyAudioTrack(audioBuffer, file.name, url);
+                return true;
+            });
         }).catch(error => {
             this.updateStatus(t('status.audioFailed', { message: error && error.message || error }));
             return false;
@@ -6668,6 +6784,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Сдвиги начала и конца и скорость: меняем на лету
+    ['audio-start', 'audio-end', 'audio-rate'].forEach((id) => {
+        const field = document.getElementById(id);
+        if (!field) return;
+        field.addEventListener('change', () => staffManager.readAudioSettingsFromFields());
+    });
+
     const audioClearButton = document.getElementById('btn-audio-clear');
     if (audioClearButton) {
         audioClearButton.addEventListener('click', () => staffManager.clearAudioTrack());
@@ -6852,6 +6975,10 @@ document.addEventListener('DOMContentLoaded', () => {
             playOptions.accompaniment = hasAudio ? [] : (staffManager.accompaniment || []);
             playOptions.audioTrack = staffManager.audioTrackBuffer;
             playOptions.audioTrackName = staffManager.audioTrackName;
+            playOptions.audioTrackUrl = staffManager.audioTrackUrl;
+            playOptions.audioTrackDuration = staffManager.audioTrackBuffer
+                ? staffManager.audioTrackBuffer.duration : 0;
+            playOptions.audioSettings = staffManager.audioSettings();
             playOptions.accompanimentFromBeat = accompanimentFromBeat;
             playOptions.accompanimentTracks = staffManager.accompanimentSettings;
             playOptions.accompanimentVolume = staffManager.accompanimentVolume;

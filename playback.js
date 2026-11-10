@@ -363,27 +363,144 @@
     // он привязан к долям мелодии, поэтому подходит, когда темп выставлен
     // по длине файла. Зацикливание и фрагмент пересчитываются в секунды
 
-    MelodyPlayer.prototype.setAudioTrack = function (buffer, name) {
-        this.audioTrack = buffer ? { buffer: buffer, name: name || '' } : null;
+    // Дорожка: буфер нужен для точной постановки, ссылка на файл - чтобы
+    // играть через <audio>: только он умеет менять скорость без смены высоты
+    MelodyPlayer.prototype.setAudioTrack = function (buffer, name, extra) {
+        var options = extra || {};
+        this.audioTrack = (buffer || options.url) ? {
+            buffer: buffer || null,
+            name: name || '',
+            url: options.url || null,
+            duration: options.duration || (buffer ? buffer.duration : 0)
+        } : null;
+        if (!this.audioTrack) this.stopAudioElement();
         return this.audioTrack;
     };
 
     MelodyPlayer.prototype.hasAudioTrack = function () {
-        return !!(this.audioTrack && this.audioTrack.buffer);
+        return !!(this.audioTrack && (this.audioTrack.buffer || this.audioTrack.url));
+    };
+
+    // Настройки дорожки: сдвиги в миллисекундах и скорость в долях единицы
+    MelodyPlayer.prototype.setAudioSettings = function (settings) {
+        var source = settings || {};
+        this.audioSettings = {
+            startMs: Math.max(0, Math.min(60000, Number(source.startMs) || 0)),
+            endMs: Math.max(0, Math.min(60000, Number(source.endMs) || 0)),
+            rate: Math.max(0.5, Math.min(1.5, Number(source.rate) || 1))
+        };
+        return this.audioSettings;
+    };
+
+    MelodyPlayer.prototype.audioSettingsOrDefault = function () {
+        if (!this.audioSettings) this.setAudioSettings(null);
+        return this.audioSettings;
+    };
+
+    // Элемент <audio> на файл: один на дорожку, иначе MediaElementSource
+    // нельзя создать второй раз для того же элемента
+    MelodyPlayer.prototype.audioElementFor = function (url) {
+        if (!url || typeof Audio !== 'function') return null;
+        if (this.audioElement && this.audioElementUrl === url) return this.audioElement;
+
+        if (!this.audioElement) {
+            this.audioElement = new Audio();
+            this.audioElement.preload = 'auto';
+        }
+        this.audioElementUrl = url;
+        this.audioElement.src = url;
+        return this.audioElement;
+    };
+
+    MelodyPlayer.prototype.connectAudioElement = function (element, destination) {
+        if (!this.ctx || typeof this.ctx.createMediaElementSource !== 'function') return false;
+        if (!this.audioSourceNode) {
+            try {
+                this.audioSourceNode = this.ctx.createMediaElementSource(element);
+            } catch (error) {
+                this.audioSourceNode = null;
+                return false;
+            }
+        }
+        try { this.audioSourceNode.disconnect(); } catch (error) { /* не был подключён */ }
+        this.audioSourceNode.connect(destination);
+        return true;
+    };
+
+    MelodyPlayer.prototype.stopAudioElement = function () {
+        if (this.audioElement) {
+            try { this.audioElement.pause(); } catch (error) { /* уже стоит */ }
+        }
     };
 
     // Куcок дорожки: с секунды fromSeconds, длиной lengthSeconds, начиная
     // со времени startAt. Играет через громкость сопровождения, поэтому
-    // ползунок и кнопка отключения действуют и на файл
+    // ползунок и кнопка отключения действуют и на файл.
+    // Скорость меняем только через <audio> с preservesPitch: у буферного
+    // источника playbackRate меняет и высоту тона, а этого быть не должно
     MelodyPlayer.prototype.scheduleAudioTrack = function (fromSeconds, lengthSeconds, startAt) {
         if (!this.hasAudioTrack() || !this.ctx) return null;
 
-        var buffer = this.audioTrack.buffer;
-        var offset = Math.max(0, Math.min(Number(fromSeconds) || 0, Math.max(0, buffer.duration - 0.02)));
-        var length = Math.max(0.05, Math.min(Number(lengthSeconds) || buffer.duration, buffer.duration - offset));
-
         var destination = this.accompanimentBus ? this.accompanimentBus.master : this.master;
         if (!destination) return null;
+
+        var track = this.audioTrack;
+        var settings = this.audioSettingsOrDefault();
+        var duration = track.duration || (track.buffer ? track.buffer.duration : 0);
+
+        // Где начинаем в самой записи: сдвиг файла плюс место в мелодии
+        var startPos = Math.max(0, settings.startMs / 1000 + (Number(fromSeconds) || 0));
+        // Где кончаем: конец файла минус сдвиг окончания
+        var limit = duration > 0 ? Math.max(0, duration - settings.endMs / 1000) : 0;
+        var scoreLength = Math.max(0.05, Number(lengthSeconds) || 0);
+
+        if (track.url && typeof Audio === 'function') {
+            var element = this.audioElementFor(track.url);
+            if (element && this.connectAudioElement(element, destination)) {
+                var self = this;
+                var rate = settings.rate;
+
+                // preservesPitch - растяжение времени без смены высоты
+                element.playbackRate = rate;
+                if ('preservesPitch' in element) element.preservesPitch = true;
+                if ('mozPreservesPitch' in element) element.mozPreservesPitch = true;
+
+                try {
+                    element.currentTime = Math.min(startPos, Math.max(0, duration - 0.05));
+                } catch (error) { /* ещё не готов */ }
+
+                var delay = Math.max(0, (Number(startAt) || this.ctx.currentTime) - this.ctx.currentTime);
+                var limitMs = limit > startPos ? (limit - startPos) / rate * 1000 : scoreLength * 1000;
+                var playMs = Math.max(50, Math.min(scoreLength / rate * 1000, limitMs));
+
+                try { element.pause(); } catch (error) { /* уже стоит */ }
+
+                var startTimer = setTimeout(function () {
+                    if (!self.playing) return;
+                    var promise = element.play();
+                    if (promise && promise.catch) {
+                        promise.catch(function (error) {
+                            self.lastAudioError = String(error && error.message || error);
+                        });
+                    }
+                }, delay * 1000);
+                this.timers.push(startTimer);
+
+                var stopTimer = setTimeout(function () {
+                    self.stopAudioElement();
+                }, delay * 1000 + playMs);
+                this.timers.push(stopTimer);
+
+                return element;
+            }
+        }
+
+        // Запасной путь: буфер напрямую. Скорость здесь не меняем - высота
+        // тона поехала бы вместе с ней
+        if (!track.buffer) return null;
+        var buffer = track.buffer;
+        var offset = Math.max(0, Math.min(startPos, Math.max(0, buffer.duration - 0.02)));
+        var length = Math.max(0.05, Math.min(scoreLength, (limit > offset ? limit : buffer.duration) - offset));
 
         var source = this.ctx.createBufferSource();
         source.buffer = buffer;
@@ -734,7 +851,15 @@
 
         // Аудио-аккомпанемент ставим после расчёта длины мелодии: длительность
         // берём из cursor, а он к этому месту уже досчитан до конца
-        if (options.audioTrack) this.setAudioTrack(options.audioTrack, options.audioTrackName);
+        if (options.audioTrack) {
+            // Ссылку на файл передаём вместе с буфером: без неё дорожка
+            // играла бы буфером, а скорость у него меняет и высоту тона
+            this.setAudioTrack(options.audioTrack, options.audioTrackName, {
+                url: options.audioTrackUrl,
+                duration: options.audioTrackDuration
+            });
+        }
+        if (options.audioSettings) this.setAudioSettings(options.audioSettings);
         if (this.hasAudioTrack()) {
             var audioFromSeconds = accFromBeat * secondsPerBeat;
             var audioLengthSeconds = Math.max(0.05, cursor - startCursor);
@@ -889,6 +1014,7 @@
             try { voice.disconnect(); } catch (e) { /* уже отключён */ }
         });
         this.voices = [];
+        this.stopAudioElement();
         this.accompanimentBus = null;
         this.melodyBus = null;
         this.playing = false;

@@ -193,6 +193,29 @@ body {
     margin-bottom: 4px;
 }
 
+/* Сдвиги и скорость аудиодорожки: три узких поля в ряд */
+.audio-tuning {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.audio-field {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-size: 10px;
+    color: #4a5568;
+}
+
+.audio-field .number-input {
+    width: 100%;
+    min-width: 0;
+    padding: 2px 4px;
+    font-size: 11px;
+}
+
 .audio-actions {
     display: flex;
     gap: 6px;
