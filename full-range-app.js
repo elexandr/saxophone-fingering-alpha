@@ -3516,6 +3516,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             system.forEach((element, position) => {
                 element.system = systemIndex;
                 element.lastInSystem = position === system.length - 1;
+                // Предпоследняя нота строки: по ней начинаем подъём, чтобы
+                // новая строка встала на место до последней ноты текущей
+                // В короткой строке (1-2 ноты) предпоследняя - это её начало:
+                // там подъём оставляем по последней ноте, как было
+                element.secondLastInSystem =
+                    system.length >= 3 && position === system.length - 2;
                 element.x = STAFF_CLEF_WIDTH + slot / 2 + position * slot;
                 element.element.style.left = element.x + 'px';
                 element.element.style.top = element.y + 'px';
@@ -4224,7 +4230,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         if (!area) return;
         
         let systemIndex = element.system || 0;
-        if (element.lastInSystem && this.staffContainers[systemIndex + 1]) {
+
+        // Подъём начинаем на предпоследней ноте строки, а не на последней:
+        // новая строка встаёт на место, пока ещё звучит предпоследняя нота
+        const advanceEarly = !!(element.secondLastInSystem || element.lastInSystem);
+        if (advanceEarly && this.staffContainers[systemIndex + 1]) {
             systemIndex += 1;
         }
         
@@ -4237,6 +4247,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const scrolledByHand = this.scrollTopNow !== this.followedScrollTop;
         if (!options.instant && this.followedSystem === systemIndex && !scrolledByHand) return;
         this.followedScrollTop = this.scrollTopNow;
+        // Какую строку уже поставили: без этого признака вёрстка читалась
+        // на каждую ноту, и подсветка подтормаживала
+        this.followedSystem = systemIndex;
 
         const staff = this.staffContainers[systemIndex];
         // Именно строка целиком: в неё входят и стан, и ряд аппликатур.
@@ -4257,16 +4270,18 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const areaRect = area.getBoundingClientRect();
         const systemRect = system.getBoundingClientRect();
         const top = systemRect.top - areaRect.top + area.scrollTop;
-        const bottom = top + systemRect.height;
-        const viewTop = area.scrollTop;
-        const viewBottom = viewTop + area.clientHeight;
-        
-        // Строка уже видна целиком - не дёргаем область
-        if (top >= viewTop && bottom <= viewBottom) return;
-        
+
+        // Раньше здесь был выход «строка целиком видна - не двигаем». Из-за
+        // него при трёх видимых строках экран стоял, пока игралась первая и
+        // вторая, а потом прыгал сразу на две. Теперь одна строка всегда
+        // поднимается на место предыдущей - шаг одинаковый и предсказуемый
         const limit = Math.max(0, area.scrollHeight - area.clientHeight);
         const target = Math.max(0, Math.min(top - PLAYBACK_SCROLL_MARGIN, limit));
-        
+
+        // Строка уже стоит где надо - ни вспышки, ни прокрутки: иначе на
+        // каждой ноте запускалась бы пустая анимация
+        if (Math.abs(target - area.scrollTop) < 1) return;
+
         if (!options.instant) this.flashSystem(system, area);
 
         this.scrollAreaTo(area, target, !!options.instant);
