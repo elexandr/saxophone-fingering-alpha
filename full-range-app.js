@@ -2314,7 +2314,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         
         // Во время проигрывания прокруткой управляет оно само
         if (!this.melodyPlayer || !this.melodyPlayer.playing) {
-            this.followPlayback(note);
+            this.followPlayback(note, { ensure: true });
         }
         
         return true;
@@ -4208,50 +4208,32 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         clearTimeout(this.flashTimer);
         this.flashTimer = setTimeout(() => flash.classList.remove('on'), 60);
     }
-    // Положение прокрутки запоминаем по событию, а не чтением scrollTop:
-    // чтение scrollTop сразу после смены класса заставляет браузер немедленно
-    // пересчитать вёрстку всего стана, а это делается на каждую ноту
-    trackScroll() {
-        if (this.scrollTracked) return;
-        const area = document.querySelector('.scrollable-area');
-        if (!area) return;
-        this.scrollTopNow = area.scrollTop;
-        area.addEventListener('scroll', () => { this.scrollTopNow = area.scrollTop; }, { passive: true });
-        this.scrollTracked = true;
-    }
-
+    // Слежение за звучащей строкой.
+    //
+    // Экран двигается только на ПОСЛЕДНЕЙ ноте строки и поднимает саму
+    // играемую строку наверх. Тогда мелодия всегда идёт по второй строке,
+    // а над ней остаётся доигранная - обе видны. После первой строки
+    // подъёма нет: она и так первая, следующая уже вторая.
+    //
+    // Мгновенный вариант (перед запуском, при повторе, после перехода)
+    // ставит наверх строку с нужной нотой сразу.
     followPlayback(element, options = {}) {
         if (!element) return;
-        
+
+        // Обычная прокрутка - только на последней ноте строки: до неё
+        // экран стоит, чтобы играемая строка читалась спокойно.
+        // Исключения: мгновенная установка и показ ноты вне игры (ensure)
+        if (!options.instant && !options.ensure && !element.lastInSystem) return;
+
         const area = document.querySelector('.scrollable-area');
         if (!area) return;
-        
-        let systemIndex = element.system || 0;
 
-        // Подъём - по последней ноте строки. Пока она звучит, экран уже
-        // поднимает следующую на место играемой: к её первой ноте всё
-        // стоит, и на экране остаются обе строки - доигранная и новая
-        if (element.lastInSystem && this.staffContainers[systemIndex + 1]) {
-            systemIndex += 1;
-        }
-        
-        this.trackScroll();
-
-        // Читаем координаты только при смене строки: иначе на каждую ноту
-        // идёт принудительный пересчёт вёрстки, и подсветка подтормаживает
-        // Один раз на строку: повторные чтения координат тормозят подсветку.
-        // Но если область прокрутили вручную, следим заново
-        const scrolledByHand = this.scrollTopNow !== this.followedScrollTop;
-        if (!options.instant && this.followedSystem === systemIndex && !scrolledByHand) return;
-        this.followedScrollTop = this.scrollTopNow;
-        // Какую строку уже поставили: без этого признака вёрстка читалась
-        // на каждую ноту, и подсветка подтормаживала
-        this.followedSystem = systemIndex;
-
+        const systemIndex = element.system || 0;
         const staff = this.staffContainers[systemIndex];
         // Именно строка целиком: в неё входят и стан, и ряд аппликатур.
         // Если взять обёртку стана, аппликатуры остаются за краем области.
         const system = staff ? staff.closest('.system') : null;
+        if (!system) return;
 
         // Картинки следующей строки декодируем заранее: иначе первый кадр
         // после перехода тратится на их декодирование, и подсветка замирает
@@ -4262,28 +4244,30 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 if (img.decode) img.decode().catch(() => {});
             });
         }
-        if (!system) return;
-        
+
         const areaRect = area.getBoundingClientRect();
         const systemRect = system.getBoundingClientRect();
         const top = systemRect.top - areaRect.top + area.scrollTop;
 
-        // Раньше здесь был выход «строка целиком видна - не двигаем». Из-за
-        // него при трёх видимых строках экран стоял, пока игралась первая и
-        // вторая, а потом прыгал сразу на две. Теперь одна строка всегда
-        // поднимается на место предыдущей - шаг одинаковый и предсказуемый
+        // Показ вне игры: если строка и так видна целиком, не дёргаем её
+        if (options.ensure) {
+            const viewTop = area.scrollTop;
+            const viewBottom = viewTop + area.clientHeight;
+            if (top >= viewTop && top + systemRect.height <= viewBottom) return;
+        }
+
         const limit = Math.max(0, area.scrollHeight - area.clientHeight);
         const target = Math.max(0, Math.min(top - PLAYBACK_SCROLL_MARGIN, limit));
 
-        // Строка уже стоит где надо - ни вспышки, ни прокрутки: иначе на
-        // каждой ноте запускалась бы пустая анимация
+        // Строка уже стоит наверху - ни вспышки, ни прокрутки. Так же
+        // ведёт себя последняя нота первой строки: поднимать нечего
         if (Math.abs(target - area.scrollTop) < 1) return;
 
         if (!options.instant) this.flashSystem(system, area);
 
         this.scrollAreaTo(area, target, !!options.instant);
     }
-    
+
     // Плавная прокрутка области. При отключённой анимации в системе - сразу.
     scrollAreaTo(area, top, instant) {
         const reduce = window.matchMedia &&
@@ -7020,7 +7004,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     if (keepLooping) {
                         staffManager.highlightElement(null);
-                        staffManager.followPlayback(sequence[0]);
+                        // К началу возвращаемся сразу: иначе экран остался
+                        // бы в конце пьесы до первого подъёма
+                        staffManager.followPlayback(sequence[0], { instant: true });
                         staffManager.updateLoopCounter();
 
                         // Отсчёт перед каждым повтором, а не только в начале.
