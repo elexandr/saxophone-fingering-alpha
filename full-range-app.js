@@ -3518,10 +3518,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 element.lastInSystem = position === system.length - 1;
                 // Предпоследняя нота строки: по ней начинаем подъём, чтобы
                 // новая строка встала на место до последней ноты текущей
-                // В короткой строке (1-2 ноты) предпоследняя - это её начало:
-                // там подъём оставляем по последней ноте, как было
-                element.secondLastInSystem =
-                    system.length >= 3 && position === system.length - 2;
+
                 element.x = STAFF_CLEF_WIDTH + slot / 2 + position * slot;
                 element.element.style.left = element.x + 'px';
                 element.element.style.top = element.y + 'px';
@@ -4231,10 +4228,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         
         let systemIndex = element.system || 0;
 
-        // Подъём начинаем на предпоследней ноте строки, а не на последней:
-        // новая строка встаёт на место, пока ещё звучит предпоследняя нота
-        const advanceEarly = !!(element.secondLastInSystem || element.lastInSystem);
-        if (advanceEarly && this.staffContainers[systemIndex + 1]) {
+        // Подъём - по последней ноте строки. Пока она звучит, экран уже
+        // поднимает следующую на место играемой: к её первой ноте всё
+        // стоит, и на экране остаются обе строки - доигранная и новая
+        if (element.lastInSystem && this.staffContainers[systemIndex + 1]) {
             systemIndex += 1;
         }
         
