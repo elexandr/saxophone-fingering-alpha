@@ -139,6 +139,106 @@ body {
     overscroll-behavior: contain;
 }
 
+/* Кнопка сворачивания панели: во всю ширину, над разделами */
+.btn-sidebar-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-bottom: 10px;
+    padding: 5px 8px;
+    font-size: 11px;
+    font-family: inherit;
+    color: #2d3748;
+    background: #edf2f7;
+    border: 1px solid #cbd5e0;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.btn-sidebar-toggle:hover {
+    background: #e2e8f0;
+}
+
+/* Полоска свёрнутой панели: развернуть, играть, стоп */
+.sidebar-rail {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.rail-btn {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: #2d3748;
+    background: #ffffff;
+    border: 1px solid #cbd5e0;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.rail-btn:hover:not(:disabled) {
+    background: #edf2f7;
+}
+
+.rail-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.rail-btn.rail-play {
+    color: #2f855a;
+    border-color: #9ae6b4;
+}
+
+.rail-btn.rail-stop {
+    color: #c53030;
+    border-color: #feb2b2;
+}
+
+/* Символы кнопок рисуем шрифтом системы: полоска не зависит от
+   внешних иконок и работает без интернета */
+.rail-glyph {
+    font-size: 15px;
+    line-height: 1;
+}
+
+.rail-play .rail-glyph {
+    font-size: 13px;
+}
+
+.rail-stop .rail-glyph {
+    font-size: 12px;
+}
+
+.sidebar-rail {
+    margin-top: 2px;
+}
+
+/* Свёрнутое состояние: панель сужается до полоски */
+body.sidebar-collapsed .control-panel {
+    box-sizing: border-box;
+    width: 46px;
+    padding: 8px 4px;
+    overflow: hidden;
+}
+
+body.sidebar-collapsed .control-panel > .control-section,
+body.sidebar-collapsed .btn-sidebar-toggle {
+    display: none;
+}
+
+body.sidebar-collapsed .sidebar-rail {
+    display: flex;
+}
+
 .control-section {
     margin-bottom: 16px;
     padding-bottom: 14px;

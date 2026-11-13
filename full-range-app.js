@@ -142,6 +142,8 @@ class FullRangeStaffManager {
         // В конвертированных файлах slash="yes" стоит у всех форшлагов,
         // а в печатных нотах многие из них идут без черты
         this.graceSlashMode = 'file';
+        // Панель свёрнута в узкую полоску с тремя кнопками
+        this.sidebarCollapsed = false;
         this.metronome = true; // по умолчанию щелчки включены
         this.metronomeVolume = 0.6;
         this.countIn = true; // отсчёт перед началом включён по умолчанию
@@ -304,6 +306,11 @@ class FullRangeStaffManager {
     init() {
         // Язык ставим до первой отрисовки, чтобы все подписи были на нём
         I18n.setLang(I18n.detectLang(), false);
+
+        // Свёрнутость панели знаем до первой раскладки: от неё зависит
+        // ширина стана и число строк
+        this.loadSidebarCollapsed();
+        this.applySidebarCollapsed(this.sidebarCollapsed, true);
 
         this.syncSystems(1);
         this.updateNoteCount();
@@ -5177,6 +5184,58 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         return this.audioSettings();
     }
 
+    // === Свёрнутая панель ===
+    // В узкой полоске остаются развернуть, играть и стоп: этого хватает,
+    // чтобы играть в темпе, не занимая экран панелью
+
+    loadSidebarCollapsed() {
+        try {
+            this.sidebarCollapsed =
+                localStorage.getItem(STORAGE_PREFIX + 'saxophone-sidebar-collapsed') === '1';
+        } catch (error) {
+            this.sidebarCollapsed = false;
+        }
+        return this.sidebarCollapsed;
+    }
+
+    saveSidebarCollapsed() {
+        try {
+            localStorage.setItem(STORAGE_PREFIX + 'saxophone-sidebar-collapsed',
+                this.sidebarCollapsed ? '1' : '0');
+        } catch (error) {
+            // Приватный режим: просто не запоминаем
+        }
+    }
+
+    // silent - не пересобирать стан (звали из init, раскладка ещё впереди)
+    applySidebarCollapsed(collapsed, silent = false) {
+        this.sidebarCollapsed = !!collapsed;
+        document.body.classList.toggle('sidebar-collapsed', this.sidebarCollapsed);
+
+        this.syncRailButtons();
+
+        if (!silent) {
+            this.saveSidebarCollapsed();
+            // Стан стал шире или уже: строки пересобираются
+            this.relayout();
+        }
+
+        return this.sidebarCollapsed;
+    }
+
+    toggleSidebar() {
+        return this.applySidebarCollapsed(!this.sidebarCollapsed);
+    }
+
+    // Кнопки играть и стоп в полоске повторяют состояние основных
+    syncRailButtons() {
+        const playing = !!(this.melodyPlayer && this.melodyPlayer.playing);
+        const play = document.getElementById('btn-rail-play');
+        const stop = document.getElementById('btn-rail-stop');
+        if (play) play.disabled = playing;
+        if (stop) stop.disabled = !playing;
+    }
+
     clampAudioShift(value) {
         const number = Math.round(Number(value) || 0);
         return Math.max(-60000, Math.min(60000, number));
@@ -6775,6 +6834,16 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-play').addEventListener('click', playMelody);
     document.getElementById('btn-stop').addEventListener('click', stopMelody);
 
+    // Свёрнутая панель: свернуть, развернуть, играть, стоп
+    document.getElementById('btn-sidebar-toggle').addEventListener('click', () => {
+        staffManager.applySidebarCollapsed(true);
+    });
+    document.getElementById('btn-rail-expand').addEventListener('click', () => {
+        staffManager.applySidebarCollapsed(false);
+    });
+    document.getElementById('btn-rail-play').addEventListener('click', playMelody);
+    document.getElementById('btn-rail-stop').addEventListener('click', stopMelody);
+
     // Аудио-аккомпанемент: выбираем музыкальный файл и играем его с мелодией
     const audioButton = document.getElementById('btn-audio-accompaniment');
     const audioInput = document.getElementById('audio-input');
@@ -6898,6 +6967,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function setPlayingState(playing) {
         document.getElementById('btn-play').disabled = playing;
         document.getElementById('btn-stop').disabled = !playing;
+        // Те же кнопки в свёрнутой панели
+        staffManager.syncRailButtons();
     }
     
     // fromElement - играть с этой ноты (клик по ноте во время игры).
