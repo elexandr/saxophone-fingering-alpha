@@ -277,18 +277,18 @@ body {
     white-space: nowrap;
 }
 
-/* Плашка повторов: текст и кнопка сброса */
+/* Плашка повторов: числа и кнопка сброса в одну строку */
 .loop-counter {
     display: flex;
     align-items: center;
     gap: 6px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
 }
 
 .loop-counter-reset {
-    margin-left: auto;
-    width: 22px;
-    height: 22px;
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
     padding: 0;
     display: inline-flex;
     align-items: center;
@@ -307,6 +307,11 @@ body {
 
 .loop-counter[hidden] {
     display: none;
+}
+
+/* Кнопка сброса в свёрнутой полоске */
+.rail-reset .rail-glyph {
+    font-size: 13px;
 }
 
 /* Свёрнутое состояние: панель сужается до полоски */

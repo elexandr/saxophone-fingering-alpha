@@ -832,23 +832,15 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
         const total = this.loopRepeats || 20;
         const done = Math.min(total, this.loopCount || 0);
-        const playing = !!(this.melodyPlayer && this.melodyPlayer.playing);
 
         counter.hidden = false;
         counter.innerHTML = '';
 
-        // Во время игры - какой повтор идёт, на паузе - сколько уже сыграно
+        // Только числа: сколько сыграно из заданного
         const main = document.createElement('span');
         main.className = 'loop-counter-main';
-        if (this.loopCounterVisible) {
-            main.textContent = t('status.loopRepeat', { n: Math.min(total, done + 1), total: total });
-        } else {
-            main.textContent = t('status.loopPlayed', { n: done, total: total });
-        }
-
-        const rest = document.createElement('span');
-        rest.className = 'loop-counter-left';
-        rest.textContent = t('status.loopLeft', { n: Math.max(0, total - done - 1) });
+        main.textContent = done + ' / ' + total;
+        counter.removeAttribute('title');
 
         // Сброс счётчика: не мешает игре, просто начинает счёт заново
         const reset = document.createElement('button');
@@ -865,7 +857,6 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         });
 
         counter.appendChild(main);
-        counter.appendChild(rest);
         counter.appendChild(reset);
     }
 
@@ -879,14 +870,16 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         return 0;
     }
 
-    // Счётчик в свёрнутой полоске: сыграно / всего
+    // Счётчик в свёрнутой полоске: сыграно / всего и кнопка сброса
     updateRailRepeats() {
         const rail = document.getElementById('rail-repeats');
+        const reset = document.getElementById('btn-rail-loop-reset');
         if (!rail) return;
 
         if (!this.loopPlayback) {
             rail.hidden = true;
             rail.textContent = '';
+            if (reset) reset.hidden = true;
             return;
         }
 
@@ -894,6 +887,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const done = Math.min(total, this.loopCount || 0);
         rail.hidden = false;
         rail.textContent = done + '/' + total;
+        if (reset) reset.hidden = false;
     }
     
     // === Строки стана ===
@@ -6985,6 +6979,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.getElementById('btn-sections-collapse').addEventListener('click', () => {
         staffManager.setAllSectionsCollapsed(true);
+    });
+
+    // Сброс счётчика повторов из свёрнутой полоски
+    document.getElementById('btn-rail-loop-reset').addEventListener('click', () => {
+        staffManager.resetLoopCounter();
     });
 
     // Аудио-аккомпанемент: выбираем музыкальный файл и играем его с мелодией
