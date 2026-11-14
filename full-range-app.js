@@ -2976,6 +2976,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // Новый файл - счётчик «все вверх/вниз» начинается заново
         this.allTransposeShift = 0;
 
+        // Круги тоже считаем заново: мелодии прежней больше нет
+        this.loopCount = 0;
+        this.loopCounterVisible = false;
+        this.updateLoopCounter();
+
         // Сопровождение прежнего файла играть не должно: ни нот, ни настроек,
         // ни сдвига. Без этого после «Очистить всё» фоном звучал старый файл
         this.accompaniment = [];
@@ -4538,6 +4543,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     // Восстановление мелодии из сохранённых данных. Понимает и новый формат (elements),
     // и старый (notes) - чтобы ранее сохранённые мелодии не потерялись.
     applyMelody(data) {
+        // Новая мелодия - новые круги: счёт прежней пьесы не переносим
+        this.loopCount = 0;
+        this.loopCounterVisible = false;
+        this.updateLoopCounter();
+
         // Новая мелодия - новое сопровождение: аудио-файл прежней пьесы
         // к ней не подходит и только мешал бы
         if (this.audioTrackBuffer) this.applyAudioTrack(null, '');
@@ -7286,8 +7296,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         
-        // Новое проигрывание - счёт кругов с нуля
-        staffManager.loopCount = 0;
+        // Счёт кругов не сбрасываем: пауза (кнопка или пробел) и повторный
+        // запуск продолжают счёт. С нуля - только если круги уже кончились
+        // или мелодию сменили: иначе новый запуск сразу считался бы готовым
+        if ((staffManager.loopCount || 0) >= (staffManager.loopRepeats || 20)) {
+            staffManager.loopCount = 0;
+        }
+        staffManager.updateLoopCounter();
 
         // Включён отсчёт - сначала такт с цифрами, потом игра. Кнопки сразу
         // переводим в «играем»: иначе второе нажатие запускало второй отсчёт,
