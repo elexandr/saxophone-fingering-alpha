@@ -128,25 +128,72 @@ body {
     min-height: 0;
 }
 
-/* Панель управления: на всю высоту области, со своим скроллом */
+/* Панель управления: на всю высоту области. Верхний блок с кнопками
+   не прокручивается, прокрутка - только у списка разделов */
 .control-panel {
     width: 190px;
     background: #f8f9fa;
     border-radius: 8px;
     padding: 12px;
     flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Верх панели: свернуть, развернуть/свернуть все разделы */
+.sidebar-top {
+    flex-shrink: 0;
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+    border-bottom: 2px solid #9fadbe;
+}
+
+.sidebar-top-row {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+}
+
+.sidebar-section-buttons {
+    display: flex;
+    gap: 4px;
+}
+
+.sidebar-icon-btn {
+    width: 26px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: #4a5568;
+    background: #edf2f7;
+    border: 1px solid #cbd5e0;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.sidebar-icon-btn:hover {
+    background: #e2e8f0;
+}
+
+/* Прокручивается только список разделов */
+.sidebar-scroll {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
 }
 
 /* Кнопка сворачивания панели: во всю ширину, над разделами */
 .btn-sidebar-toggle {
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
-    margin-bottom: 10px;
     padding: 5px 8px;
     font-size: 11px;
     font-family: inherit;
@@ -222,6 +269,46 @@ body {
     margin-top: 2px;
 }
 
+/* Повторы в полоске: сыграно / всего */
+.rail-repeats {
+    font-size: 10px;
+    font-weight: 600;
+    color: #4a5568;
+    white-space: nowrap;
+}
+
+/* Плашка повторов: текст и кнопка сброса */
+.loop-counter {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.loop-counter-reset {
+    margin-left: auto;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: #4a5568;
+    background: #ffffff;
+    border: 1px solid #cbd5e0;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.loop-counter-reset:hover {
+    background: #edf2f7;
+}
+
+.loop-counter[hidden] {
+    display: none;
+}
+
 /* Свёрнутое состояние: панель сужается до полоски */
 body.sidebar-collapsed .control-panel {
     box-sizing: border-box;
@@ -230,9 +317,15 @@ body.sidebar-collapsed .control-panel {
     overflow: hidden;
 }
 
-body.sidebar-collapsed .control-panel > .control-section,
-body.sidebar-collapsed .btn-sidebar-toggle {
+body.sidebar-collapsed .control-panel > .sidebar-scroll,
+body.sidebar-collapsed .sidebar-top-row {
     display: none;
+}
+
+body.sidebar-collapsed .sidebar-top {
+    padding-bottom: 0;
+    margin-bottom: 0;
+    border-bottom: none;
 }
 
 body.sidebar-collapsed .sidebar-rail {
@@ -446,6 +539,30 @@ body.sidebar-collapsed .sidebar-rail {
     display: flex;
     align-items: center;
     gap: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+/* Галочка раздела: вниз - открыт, вправо - свёрнут */
+.control-section h3::after {
+    content: '\25BE';
+    margin-left: auto;
+    font-size: 11px;
+    color: #7f8c9b;
+    transition: transform 0.15s;
+}
+
+.control-section.section-collapsed h3::after {
+    transform: rotate(-90deg);
+}
+
+.control-section.section-collapsed h3 {
+    margin-bottom: 0;
+}
+
+/* Свёрнутый раздел: видны только заголовок и разделитель */
+.control-section.section-collapsed > *:not(h3) {
+    display: none;
 }
 
 .control-section h3 i {
