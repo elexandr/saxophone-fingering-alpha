@@ -37,7 +37,12 @@
     // Если известенf точное время из файла (поле beats), оно главнее: <type>
     // бывает приблизительным, а <duration> - это настоящее время ноты
     function beatsOf(element) {
-        if (element && typeof element.beats === 'number' && element.beats > 0) return element.beats;
+        // Форшлаг времени не занимает: без этого он съедал долю при разбиении
+        // на такты, и сохранённый файл получался с тактами по 3 доли вместо 4.
+        // При открытии такого файла ноты «уезжали» относительно тактовых черт
+        if (!element) return 0;
+        if (element.isGrace) return 0;
+        if (typeof element.beats === 'number' && element.beats > 0) return element.beats;
 
         var denominator = Number(element.duration) || 4;
         var beats = 4 / denominator;
