@@ -881,6 +881,18 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     }
 
     // Счётчик в свёрнутой полоске: сыграно / всего и кнопка сброса
+    // Текущий темп в свёрнутой полоске: только показать. Менять темп -
+    // в разделе «Воспроизведение», здесь для этого нет поля
+    updateRailTempo() {
+        const rail = document.getElementById('rail-tempo');
+        if (!rail) return;
+
+        const tempo = Math.min(240, Math.max(30, parseInt(this.tempo, 10) || 80));
+        rail.textContent = String(tempo);
+        rail.setAttribute('title', t('rail.tempo.hint'));
+        return tempo;
+    }
+
     updateRailRepeats() {
         const rail = document.getElementById('rail-repeats');
         const reset = document.getElementById('btn-rail-loop-reset');
@@ -5409,6 +5421,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         document.body.classList.toggle('sidebar-collapsed', this.sidebarCollapsed);
 
         this.syncRailButtons();
+        this.updateRailTempo();
 
         if (!silent) {
             this.saveSidebarCollapsed();
@@ -5806,6 +5819,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         
         const input = document.getElementById('tempo-input');
         if (input && parseInt(input.value, 10) !== tempo) input.value = tempo;
+
+        // В свёрнутой полоске видно текущий темп
+        this.updateRailTempo();
 
         // При загруженной записи стан подгоняется под её длину: в другой темп
         // влезает другое число тактов, и сетка пересчитывается

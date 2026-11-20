@@ -269,6 +269,16 @@ body {
     margin-top: 2px;
 }
 
+/* Темп в полоске: только цифра, без поля ввода */
+.rail-tempo {
+    font-size: 11px;
+    font-weight: 600;
+    color: #2d3748;
+    white-space: nowrap;
+    user-select: none;
+    cursor: default;
+}
+
 /* Повторы в полоске: сыграно / всего */
 .rail-repeats {
     font-size: 10px;
