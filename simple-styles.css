@@ -576,6 +576,17 @@ body.sidebar-collapsed .sidebar-rail {
 }
 
 /* Кнопки */
+/* Пары в «Управлении нотами»: внутри пары тесно, между парами
+   отступ больше - так кнопки читаются группами */
+.control-group.notes-pair {
+    gap: 6px;
+    margin-bottom: 14px;
+}
+
+.control-group.notes-pair:last-child {
+    margin-bottom: 0;
+}
+
 .control-group {
     display: flex;
     flex-direction: column;
