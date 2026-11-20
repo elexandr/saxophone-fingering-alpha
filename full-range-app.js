@@ -4819,7 +4819,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.renderAccompanimentPanel();
 
         // Инструмент выбран заранее (альт, тенор): сопровождение из MIDI
-        // звучит вместе с мелодией и получает тот же сдвиг
+        // звучит вместе с мелодией и получает тот же сдвиг. Связь при этом
+        // включаем заново: прежний ручной 0 к новой пьесе не относится
+        this.accompanimentShiftLinked = true;
         this.syncAccompanimentShift();
 
         this.applyMidiSettings(converted);
@@ -6780,8 +6782,13 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             const toggle = document.getElementById('sounding-names-toggle');
             if (toggle) toggle.checked = this.soundingNames;
         }
-        // Сдвиг сопровождения: своё значение из файла важнее, иначе
-        // сопровождение идёт за инструментом (альт -9 и т.п.)
+        // Новый файл: связь сопровождения с инструментом включаем заново.
+        // Иначе после любого ручного 0 следующая пьеса открывалась бы с
+        // нулём, хотя инструмент выбран (альт -9 и т.п.)
+        this.accompanimentShiftLinked = true;
+
+        // Сдвиг сопровождения: явное значение из файла важнее. Свои файлы
+        // несут 0 и снятую связь - в них сопровождение уже в звучащей высоте
         if (settings && typeof settings.accompanimentShift === 'number') {
             this.setAccompanimentShift(settings.accompanimentShift);
             if (settings.accompanimentShiftLinked === false) this.accompanimentShiftLinked = false;
