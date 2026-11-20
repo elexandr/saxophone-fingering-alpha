@@ -108,6 +108,9 @@ class FullRangeStaffManager {
         // файл с альтом - тот же сдвиг получает и сопровождение. Своё
         // значение в поле отключает связь
         this.accompanimentShiftLinked = true;
+        // Транспозиция партии в открытом файле: 0 - написано как звучит,
+        // -9 - партия альта, -14 - тенора. От неё зависит сдвиг сопровождения
+        this.fileTranspose = 0;
         this.allTransposeShift = 0;      // на сколько сдвинули все ноты кнопками «Все вверх/вниз»
         this.selectedIds = [];
         this.selectionAnchorId = null;
@@ -2998,6 +3001,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // Новый файл - счётчик «все вверх/вниз» начинается заново
         this.allTransposeShift = 0;
 
+        // Транспозиция относилась к прежней партии: у новой будет своя
+        this.fileTranspose = 0;
+
         // Круги тоже считаем заново: мелодии прежней больше нет
         this.loopCount = 0;
         this.loopCounterVisible = false;
@@ -5188,10 +5194,21 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     // Связанный сдвиг: пока связь включена, сопровождение повторяет сдвиг
     // инструмента. Раньше при открытии файла с альтом мелодия уезжала на
     // -9, а сопровождение оставалось на 0 - и приходилось править вручную
+    // Куда должно встать сопровождение: мелодия звучит как написанное плюс
+    // сдвиг инструмента, а партия в файле, возможно, уже транспонирована.
+    // Аккомпанемент концертный, поэтому его сдвиг = инструмент минус
+    // транспозиция партии: нет сдвига в файле - всё едет за инструментом,
+    // партия альта при альте - 0, партия тенора при альте - +5
+    accompanimentShiftTarget() {
+        const instrument = Number(this.appSoundShift) || 0;
+        const partTranspose = Number(this.fileTranspose) || 0;
+        return this.clampShift(instrument - partTranspose);
+    }
+
     syncAccompanimentShift() {
         if (!this.accompanimentShiftLinked) return this.accompanimentShift;
 
-        this.accompanimentShift = this.appSoundShift;
+        this.accompanimentShift = this.accompanimentShiftTarget();
         const field = document.getElementById('accompaniment-shift');
         if (field) field.value = String(this.accompanimentShift);
         this.applyAccompanimentShift();
@@ -5203,7 +5220,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     setAccompanimentShift(value) {
         const shift = this.clampShift(Number(value) || 0);
         this.accompanimentShift = shift;
-        this.accompanimentShiftLinked = shift === this.appSoundShift;
+        this.accompanimentShiftLinked = shift === this.accompanimentShiftTarget();
 
         const field = document.getElementById('accompaniment-shift');
         if (field) field.value = String(shift);
@@ -6788,6 +6805,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.scheduleAutosave();
 
         this.loading = false;
+
+        // Транспозиция выбранной партии: нужна для сдвига сопровождения
+        this.fileTranspose = Number(parsed.transpose) || 0;
 
         // Сдвиги и режим подписей из расширений: без них файл откроется не так
         const settings = parsed.settings || {};

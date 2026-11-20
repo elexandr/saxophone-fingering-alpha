@@ -1037,6 +1037,10 @@
             timeSignature: (beats && beatType) ? (beats + '/' + beatType) : '',
             fifths: fifthsMatch ? Number(fifthsMatch[1]) : null,
             partCount: parts.length,
+            // Транспозиция выбранной партии: сколько она звучит относительно
+            // написанного (у альта -9). Нужна, чтобы сопровождение встало
+            // на своё место: аккомпанемент концертный, мелодия - как написана
+            transpose: Number(walked.transpose) || 0,
             partNames: parts.map(function (part) { return partNames[part.id] || part.id; }),
             chosenPart: partNames[chosenPart.id] || chosenPart.id,
             clefSign: clefSign,
