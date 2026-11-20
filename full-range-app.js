@@ -4520,6 +4520,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             accompanimentVolume: this.accompanimentVolume,
             accompanimentShift: this.accompanimentShift,
             accompanimentShiftLinked: this.accompanimentShiftLinked,
+            // «Все вверх/вниз»: мелодия уже записана сдвинутой, а
+            // сопровождение играется с этим сдвигом. Без сохранения
+            // после открытия файла мелодия и сопровождение расходились
+            allTransposeShift: this.allTransposeShift || 0,
             timestamp: new Date().toISOString(),
             version: '1.5.0',
             range: 'C2 - F#6'
@@ -5875,6 +5879,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             this.accompanimentShift = typeof data.accompanimentShift === 'number'
                 ? data.accompanimentShift : 0;
             this.accompanimentShiftLinked = data.accompanimentShiftLinked !== false;
+            // Сдвиг «все вверх/вниз» прежней сессии: мелодия сохранена уже
+            // транспонированной, и сопровождению нужен тот же сдвиг
+            this.allTransposeShift = Number(data.allTransposeShift) || 0;
             const mainVolumeField = document.getElementById('main-volume');
             if (mainVolumeField) mainVolumeField.value = String(Math.round(this.mainVolume * 100));
             const accShiftField = document.getElementById('accompaniment-shift');
@@ -6243,8 +6250,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 saxShift: this.saxShift,
                 soundingNames: this.soundingNames,
                 keyFifths: this.keyFifths,
-                accompanimentShift: this.accompanimentShift,
-                accompanimentShiftLinked: this.accompanimentShiftLinked,
+                // Партии сопровождения пишутся уже в звучащей высоте: сдвиг
+                // вложен в сами ноты, поэтому в настройках остаётся 0.
+                // Иначе при открытии файла сдвиг применился бы второй раз
+                accompanimentShift: 0,
+                accompanimentShiftLinked: false
             },
             meta: {
                 model: 1,
