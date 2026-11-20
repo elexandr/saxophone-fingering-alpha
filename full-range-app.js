@@ -447,6 +447,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         I18n.setLang(lang, persist);
         this.refreshTexts();
         this.updateLanguageButtons();
+
+        // Пример «что играет приложение и что звучит у инструмента» строится
+        // кодом: без этого он оставался на прежнем языке после переключения
+        if (typeof this.updateInstrumentExample === 'function') {
+            this.updateInstrumentExample();
+        }
     }
     
     // Перевыводит всё, что формируется кодом: подписи знаков, окошки, строки
