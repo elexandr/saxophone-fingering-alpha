@@ -155,7 +155,7 @@
             'midi.skipped': ' · {n} нот вне диапазона пропущено',
 
 'panel.accompanimentShift': 'Сдвиг сопровождения',
-'panel.accompanimentShift.hint': 'Сдвиг только сопровождения, в полутонах',
+'panel.accompanimentShift.hint': 'Сдвиг только сопровождения, в полутонах. По умолчанию сопровождение идёт за звуком инструмента: выбрали альт - получит те же −9. Своё значение отключает связь, а совпадение с инструментом снова её включает',
 'panel.edit': 'Редактирование',
             'panel.edit.hint': 'Правка мелодии: ноты, паузы, реприза, размер и транспонирование',
                         'panel.instrument': 'Транспонирование инструмента',
@@ -614,7 +614,7 @@
             'midi.skipped': ' · {n} notes outside the range were skipped',
 
 'panel.accompanimentShift': 'Accompaniment shift',
-'panel.accompanimentShift.hint': 'Shift of the accompaniment only, in semitones',
+'panel.accompanimentShift.hint': 'Shift of the accompaniment only, in semitones. By default the accompaniment follows the instrument sound: pick alto and it gets the same −9. Any other value unlinks it; a value equal to the instrument shift links it again',
 'panel.edit': 'Editing',
             'panel.edit.hint': 'Edit the melody: notes, rests, repeats, metre and transposition',
                         'panel.instrument': 'Instrument transposition',

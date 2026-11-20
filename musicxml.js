@@ -346,6 +346,9 @@
         field('sax-fingering-app-shift', settings.appSoundShift);
         field('sax-fingering-instrument-shift', settings.saxShift);
         field('sax-fingering-sounding-names', settings.soundingNames ? 'true' : 'false');
+        field('sax-fingering-accompaniment-shift', settings.accompanimentShift);
+        field('sax-fingering-accompaniment-linked',
+            settings.accompanimentShiftLinked === false ? 'false' : 'true');
         field('sax-fingering-set', meta.fingeringSet || '');
 
         var out = [
@@ -792,6 +795,8 @@
             if (name === 'sax-fingering-app-shift') settings.appSoundShift = Number(value);
             else if (name === 'sax-fingering-instrument-shift') settings.saxShift = Number(value);
             else if (name === 'sax-fingering-sounding-names') settings.soundingNames = value === 'true';
+            else if (name === 'sax-fingering-accompaniment-shift') settings.accompanimentShift = Number(value);
+            else if (name === 'sax-fingering-accompaniment-linked') settings.accompanimentShiftLinked = value === 'true';
             else if (name === 'sax-fingering-set') meta.fingeringSet = value;
             else if (name === 'sax-fingering-model') meta.model = Number(value);
             else if (name === 'sax-fingering-version') meta.version = value;

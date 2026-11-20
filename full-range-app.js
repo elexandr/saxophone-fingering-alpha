@@ -104,6 +104,10 @@ class FullRangeStaffManager {
         this.loadAudioSettings();
         this.accompanimentVolume = 1;    // общая громкость сопровождения
         this.accompanimentShift = 0;     // сдвиг только сопровождения, полутонов
+        // Сопровождение по умолчанию идёт за звуком инструмента: открыли
+        // файл с альтом - тот же сдвиг получает и сопровождение. Своё
+        // значение в поле отключает связь
+        this.accompanimentShiftLinked = true;
         this.allTransposeShift = 0;      // на сколько сдвинули все ноты кнопками «Все вверх/вниз»
         this.selectedIds = [];
         this.selectionAnchorId = null;
@@ -4515,6 +4519,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             mainVolume: this.mainVolume,
             accompanimentVolume: this.accompanimentVolume,
             accompanimentShift: this.accompanimentShift,
+            accompanimentShiftLinked: this.accompanimentShiftLinked,
             timestamp: new Date().toISOString(),
             version: '1.5.0',
             range: 'C2 - F#6'
@@ -4803,6 +4808,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.accompaniment = accompaniment;
         this.renderAccompanimentPanel();
 
+        // Инструмент выбран заранее (альт, тенор): сопровождение из MIDI
+        // звучит вместе с мелодией и получает тот же сдвиг
+        this.syncAccompanimentShift();
+
         this.applyMidiSettings(converted);
         this.updateStatus(this.midiStatusText(converted));
         
@@ -4908,6 +4917,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         if (settings && settings.soundingNames === undefined && settings.fingeringLinked !== undefined) {
             this.soundingNames = !settings.fingeringLinked;
         }
+
+        // Сопровождение идёт за сдвигом инструмента, если связь не снята
+        if (typeof this.syncAccompanimentShift === 'function') {
+            this.syncAccompanimentShift();
+        }
+
         if (!settings) return;
         
         if (settings.imageSize) {
@@ -5107,6 +5122,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.syncPresetHighlight();
         this.updateInstrumentExample();
 
+        // Сопровождение едет вместе с инструментом, если связь не снята
+        this.syncAccompanimentShift();
+
         this.updateStatus(t('status.shifts', {
             app: this.appSoundShift,
             sax: this.saxShift
@@ -5141,6 +5159,33 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             this.melodyPlayer.setAccompanimentTranspose(
                 this.accompanimentShift + this.allTransposeShift);
         }
+    }
+
+    // Связанный сдвиг: пока связь включена, сопровождение повторяет сдвиг
+    // инструмента. Раньше при открытии файла с альтом мелодия уезжала на
+    // -9, а сопровождение оставалось на 0 - и приходилось править вручную
+    syncAccompanimentShift() {
+        if (!this.accompanimentShiftLinked) return this.accompanimentShift;
+
+        this.accompanimentShift = this.appSoundShift;
+        const field = document.getElementById('accompaniment-shift');
+        if (field) field.value = String(this.accompanimentShift);
+        this.applyAccompanimentShift();
+        return this.accompanimentShift;
+    }
+
+    // Ручная правка поля: своё значение отключает связь, совпадение с
+    // инструментом - снова включает
+    setAccompanimentShift(value) {
+        const shift = this.clampShift(Number(value) || 0);
+        this.accompanimentShift = shift;
+        this.accompanimentShiftLinked = shift === this.appSoundShift;
+
+        const field = document.getElementById('accompaniment-shift');
+        if (field) field.value = String(shift);
+        this.applyAccompanimentShift();
+
+        return shift;
     }
 
     renderAccompanimentPanel() {
@@ -5665,10 +5710,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // Сдвиг только сопровождения: общий сдвиг двигает и его тоже
         const accShiftInput = document.getElementById('accompaniment-shift');
         const applyAccShift = (value) => {
-            const shift = staffManager.clampShift(Number(value) || 0);
-            staffManager.accompanimentShift = shift;
-            if (accShiftInput) accShiftInput.value = String(shift);
-            staffManager.applyAccompanimentShift();
+            staffManager.setAccompanimentShift(value);
+            staffManager.scheduleAutosave();
         };
         // Единичные обработчики вместо addEventListener: при повторной
         // инициализации их накапливалось несколько, и шаг выходил в три пункта
@@ -5831,6 +5874,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 ? data.accompanimentVolume : 1;
             this.accompanimentShift = typeof data.accompanimentShift === 'number'
                 ? data.accompanimentShift : 0;
+            this.accompanimentShiftLinked = data.accompanimentShiftLinked !== false;
             const mainVolumeField = document.getElementById('main-volume');
             if (mainVolumeField) mainVolumeField.value = String(Math.round(this.mainVolume * 100));
             const accShiftField = document.getElementById('accompaniment-shift');
@@ -6198,7 +6242,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 appSoundShift: this.appSoundShift,
                 saxShift: this.saxShift,
                 soundingNames: this.soundingNames,
-                keyFifths: this.keyFifths
+                keyFifths: this.keyFifths,
+                accompanimentShift: this.accompanimentShift,
+                accompanimentShiftLinked: this.accompanimentShiftLinked,
             },
             meta: {
                 model: 1,
@@ -6718,6 +6764,13 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             const toggle = document.getElementById('sounding-names-toggle');
             if (toggle) toggle.checked = this.soundingNames;
         }
+        // Сдвиг сопровождения: своё значение из файла важнее, иначе
+        // сопровождение идёт за инструментом (альт -9 и т.п.)
+        if (settings && typeof settings.accompanimentShift === 'number') {
+            this.setAccompanimentShift(settings.accompanimentShift);
+            if (settings.accompanimentShiftLinked === false) this.accompanimentShiftLinked = false;
+        }
+
         if (this.afterShiftChange) this.afterShiftChange();
 
         if (parsed.tempo) this.setTempo(parsed.tempo);
