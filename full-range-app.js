@@ -5458,7 +5458,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const playing = !!(this.melodyPlayer && this.melodyPlayer.playing);
         const play = document.getElementById('btn-rail-play');
         const stop = document.getElementById('btn-rail-stop');
-        if (play) play.disabled = playing;
+        // «Играть» доступна всегда: повторное нажатие начинает сначала
+        if (play) play.disabled = false;
         if (stop) stop.disabled = !playing;
     }
 
@@ -7229,7 +7230,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     
     function setPlayingState(playing) {
-        document.getElementById('btn-play').disabled = playing;
+        // «Играть» не блокируем: повторное нажатие начинает мелодию сначала
+        document.getElementById('btn-play').disabled = false;
         document.getElementById('btn-stop').disabled = !playing;
         // Те же кнопки в свёрнутой панели
         staffManager.syncRailButtons();
@@ -7244,9 +7246,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Отсчёт уже идёт - второй запуск не нужен: два таймера начнут игру
-        // дважды, и мелодия будет зацикливаться на первой ноте
-        if (staffManager.countInRunning) return;
+        // Уже играем или идёт отсчёт - нажатие «Играть» начинает сначала:
+        // останавливаем текущее проигрывание и запускаем заново. Иначе
+        // второй вызов заводил второй отсчёт и мелодия зацикливалась
+        if ((staffManager.melodyPlayer && staffManager.melodyPlayer.playing) ||
+            staffManager.countInRunning) {
+            stopMelody();
+        }
 
         // Порядок воспроизведения учитывает репризу: участок играется дважды
         const fullSequence = Playback.buildSequence(staffManager.notes);
