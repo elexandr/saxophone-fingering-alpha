@@ -213,17 +213,18 @@ body {
     display: none;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    /* Кнопки разнесены: между ними 14px вместо прежних 8 */
+    gap: 14px;
 }
 
 .rail-btn {
-    width: 42px;
-    height: 42px;
+    width: 34px;
+    height: 34px;
     padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 16px;
+    font-size: 14px;
     color: #2d3748;
     background: #ffffff;
     border: 1px solid #cbd5e0;
@@ -252,17 +253,18 @@ body {
 
 /* Символы кнопок рисуем шрифтом системы: полоска не зависит от
    внешних иконок и работает без интернета */
+/* Значки крупнее кнопок: сама кнопка прежняя, символ заметнее */
 .rail-glyph {
-    font-size: 17px;
+    font-size: 21px;
     line-height: 1;
 }
 
 .rail-play .rail-glyph {
-    font-size: 15px;
+    font-size: 19px;
 }
 
 .rail-stop .rail-glyph {
-    font-size: 14px;
+    font-size: 17px;
 }
 
 .sidebar-rail {
@@ -327,9 +329,8 @@ body {
 /* Свёрнутое состояние: панель сужается до полоски */
 body.sidebar-collapsed .control-panel {
     box-sizing: border-box;
-    /* Ширина с запасом под кнопки 42px: 56 - 2*6 отступа = 44 */
-    width: 56px;
-    padding: 8px 6px;
+    width: 46px;
+    padding: 8px 4px;
     overflow: hidden;
 }
 
