@@ -111,6 +111,9 @@ class FullRangeStaffManager {
         // Транспозиция партии в открытом файле: 0 - написано как звучит,
         // -9 - партия альта, -14 - тенора. От неё зависит сдвиг сопровождения
         this.fileTranspose = 0;
+        // Размеры, которые встретились в открытом MIDI-файле: если их
+        // несколько, над станом видно, что размер меняется по ходу пьесы
+        this.fileMeters = [];
         this.allTransposeShift = 0;      // на сколько сдвинули все ноты кнопками «Все вверх/вниз»
         this.selectedIds = [];
         this.selectionAnchorId = null;
@@ -3003,6 +3006,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
         // Транспозиция относилась к прежней партии: у новой будет своя
         this.fileTranspose = 0;
+        this.fileMeters = [];
 
         // Круги тоже считаем заново: мелодии прежней больше нет
         this.loopCount = 0;
@@ -3898,7 +3902,13 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 element.crossesBoundary = false;
                 if (element.hasBarLine) marks.set(element.id, 'barline');
             });
-            this.measureCount = this.notes.length ? marks.size + 1 : 0;
+            // Если черта стоит на последней ноте, лишнего такта в конце нет:
+            // так бывает в файлах, где черта есть и в конце пьесы
+            const lastElement = this.notes[this.notes.length - 1];
+            const lastHasBar = lastElement ? !!lastElement.hasBarLine : false;
+            this.measureCount = this.notes.length
+                ? marks.size + (lastHasBar ? 0 : 1)
+                : 0;
         }
         
         this.notes.forEach(element => {
@@ -4079,8 +4089,12 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const node = document.getElementById('measure-info');
         if (!node) return;
         
+        const changesMetre = this.notes.length && this.fileMeters && this.fileMeters.length > 1;
+
         node.textContent = this.notes.length
-            ? t('staff.measures', { signature: this.timeSignature, n: this.measureCount })
+            ? (changesMetre
+                ? t('staff.metreChanges', { list: this.fileMeters.join(' → '), n: this.measureCount })
+                : t('staff.measures', { signature: this.timeSignature, n: this.measureCount }))
             : t('staff.metre', { signature: this.timeSignature });
     }
     
@@ -4836,6 +4850,14 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             return null;
         }
         
+        // Размер может меняться по ходу пьесы: тогда тактовые черты пришли
+        // из файла (hasBarLine), и стан рисует их в ручном режиме. Режим
+        // ставим до разметки, чтобы не перерисовывать стан лишний раз
+        this.barLineMode = (converted.stats && converted.stats.variableMeter) ? 'manual' : 'auto';
+        const modeRadio = document.querySelector(
+            'input[name="barline-mode"][value="' + this.barLineMode + '"]');
+        if (modeRadio) modeRadio.checked = true;
+
         this.applyMelody({
             elements: converted.elements,
             settings: {
@@ -4861,6 +4883,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         // Транспозиция партии для сдвига сопровождения: MIDI-партия теперь
         // записана для выбранного инструмента, аккомпанемент концертный
         this.fileTranspose = instrumentShift ? this.clampShift(instrumentShift) : 0;
+
+        // Размеры файла: разметка стана их не знает, ставим после неё
+        this.fileMeters = (converted.stats && converted.stats.meters) || [];
+        if (this.fileMeters.length > 1) this.updateMeasureInfo();
 
         // Инструмент выбран заранее (альт, тенор): сопровождение из MIDI
         // звучит вместе с мелодией и получает тот же сдвиг. Связь при этом
@@ -4896,7 +4922,18 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const select = document.getElementById('time-signature');
         const known = select && Array.prototype.some.call(select.options, option => option.value === text);
         
-        if (known) this.setTimeSignature(text);
+        if (known) {
+            this.setTimeSignature(text);
+            return;
+        }
+
+        // 2/2 и подобные в списке приложения нет: показываем ближайший
+        // по длине такта, чтобы стан не остался с прежним размером
+        const beats = signature.numerator * 4 / signature.denominator;
+        const fallback = beats >= 6 ? '6/8' : beats >= 4 ? '4/4' : beats >= 3 ? '3/4' : '2/4';
+        const fallbackKnown = select &&
+            Array.prototype.some.call(select.options, option => option.value === fallback);
+        if (fallbackKnown) this.setTimeSignature(fallback);
     }
     
     // Что сказать о загруженном файле: сколько нот, одноголосый ли он,
@@ -4913,6 +4950,11 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         
         if (converted.shift) text += t('midi.shifted', { semitones: converted.shift });
         if (stats.skipped) text += t('midi.skipped', { n: stats.skipped });
+        // Размер меняется внутри пьесы: об этом стоит сказать, иначе
+        // «Размер: 4/4» рядом с разными по длине тактами выглядит ошибкой
+        if (stats.variableMeter && stats.meters && stats.meters.length) {
+            text += t('midi.meterChanges', { list: stats.meters.join(' → ') });
+        }
         
         return text;
     }

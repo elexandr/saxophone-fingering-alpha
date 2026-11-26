@@ -150,6 +150,7 @@
             'midi.failed': 'Не удалось прочитать MIDI: {reason}',
             'midi.empty': 'В MIDI-файле не нашлось нот',
             'midi.loaded': 'Из MIDI: нот {notes}, пауз {rests}',
+            'midi.meterChanges': '. Размер в файле меняется: {list} — тактовые черты расставлены по файлу',
             'midi.monophonic': ' · одноголосый',
             'midi.polyphonic': ' · многоголосый: до {max} нот одновременно, для саксофона взята верхняя линия',
             'midi.shifted': ' · мелодия перенесена на {semitones} полутонов, чтобы попасть в диапазон саксофона',
@@ -212,6 +213,7 @@
             'btn.transposeDown': 'Все вниз',
             'btn.transposeDown.hint': 'Транспонировать все ноты на полтона вниз',
 
+            'staff.metreChanges': 'Размер меняется: {list} · Тактов: {n}',
             'staff.measures': 'Размер: {signature} · Тактов: {n}',
             'staff.metre': 'Размер: {signature}',
             'staff.fingerings': 'Аппликатур: {n}',
@@ -610,6 +612,7 @@
             'midi.failed': 'Could not read the MIDI file: {reason}',
             'midi.empty': 'No notes found in the MIDI file',
             'midi.loaded': 'From MIDI: {notes} notes, {rests} rests',
+            'midi.meterChanges': '. The file changes metre: {list} — bar lines follow the file',
             'midi.monophonic': ' · monophonic',
             'midi.polyphonic': ' · polyphonic: up to {max} notes at once, the top line was taken for the saxophone',
             'midi.shifted': ' · the melody was shifted by {semitones} semitones to fit the saxophone range',
@@ -672,6 +675,7 @@
             'btn.transposeDown': 'All down',
             'btn.transposeDown.hint': 'Transpose every note down by a semitone',
 
+            'staff.metreChanges': 'Metre changes: {list} · bars: {n}',
             'staff.measures': 'Metre: {signature} · bars: {n}',
             'staff.metre': 'Metre: {signature}',
             'staff.fingerings': 'Fingerings: {n}',

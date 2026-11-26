@@ -107,6 +107,45 @@
 
     // --- разбор файла ------------------------------------------------------
 
+    // Позиции тактовых черт по карте размеров (в тиках, без нуля).
+    // Размер меняется внутри пьесы, поэтому одной длиной такта не обойтись
+    function barLineTicks(ppq, timeSignatures, endTick) {
+        var list = (timeSignatures || []).slice().sort(function (a, b) {
+            return a.tick - b.tick;
+        });
+        if (!list.length || !ppq) return [];
+
+        var ticks = [];
+        var index = 0;
+        var current = { numerator: 4, denominator: 4 };
+        var position = 0;
+        var guard = 0;
+
+        while (position < endTick - 1 && guard++ < 2000) {
+            // Все смены, которые уже наступили
+            while (index < list.length && list[index].tick <= position + 1) {
+                current = list[index];
+                index++;
+            }
+
+            var measureTicks = current.numerator * (4 / current.denominator) * ppq;
+            if (!(measureTicks > 0)) break;
+
+            var next = position + measureTicks;
+            // Смена размера может прийти раньше, чем кончился бы такт:
+            // тогда тактовая черта стоит на смене
+            if (index < list.length && list[index].tick < next - 1) {
+                next = list[index].tick;
+            }
+            if (next <= position) break;
+
+            ticks.push(Math.round(next));
+            position = next;
+        }
+
+        return ticks;
+    }
+
     // Транспозиция инструмента по номеру программы General MIDI
     // (номера здесь с нуля: 64 - сопрано, 65 - альт, 66 - тенор, 67 - баритон).
     // Сдвиг - на сколько инструмент звучит ниже написанного
@@ -150,6 +189,8 @@
         var tempoBpm = null;
         var timeSignature = null;
         var keySignature = null;
+        // Карта смен размера: 2/2 с начала, 3/4 с 16-й четверти и так далее
+        var timeSignatures = [];
         var programs = {};
         var trackName = '';
         var trackInfos = [];
@@ -176,6 +217,9 @@
             if (tempoBpm === null && track.tempoBpm) tempoBpm = track.tempoBpm;
             if (timeSignature === null && track.timeSignature) timeSignature = track.timeSignature;
             if (keySignature === null && track.keySignature) keySignature = track.keySignature;
+            if (track.timeSignatures && track.timeSignatures.length) {
+                timeSignatures = timeSignatures.concat(track.timeSignatures);
+            }
             // Инструменты каналов и название дорожки: по ним назовём инструмент
             if (track.programs) {
                 Object.keys(track.programs).forEach(function (ch) { programs[ch] = track.programs[ch]; });
@@ -195,6 +239,13 @@
             pos = body + chunkLength;
         }
 
+        // Размеры приходят из дирижёрской дорожки, но бывают и в других:
+        // сортируем по тику и убираем повторы на одном тике
+        timeSignatures.sort(function (a, b) { return a.tick - b.tick; });
+        timeSignatures = timeSignatures.filter(function (item, index) {
+            return index === 0 || item.tick !== timeSignatures[index - 1].tick;
+        });
+
         var notes = [];
         tracks.forEach(function (list) {
             notes = notes.concat(list);
@@ -213,6 +264,8 @@
             trackCount: tracks.length,
             tempoBpm: tempoBpm,
             timeSignature: timeSignature,
+            // Карта смен размера: 2/2 с начала, 3/4 с 16-й четверти и так далее
+            timeSignatures: timeSignatures,
             keySignature: keySignature,
             programs: programs,
             tracks: trackInfos,
@@ -232,6 +285,8 @@
         // Тональность из файла: без неё стан открывался без знаков при ключе,
         // хотя в Guitar Pro и в нотах тональность видна
         var keySignature = null;
+        // Все смены размера по тикам
+        var timeSignatures = [];
         var timeSignature = null;
         var programs = {};
         var trackName = '';
@@ -268,12 +323,18 @@
                 } else if (metaType === META.trackName && metaLength.value > 0) {
             trackName = readAscii(bytes, pos, metaLength.value);
         } else if (metaType === META.timeSignature && metaLength.value >= 2) {
-                    if (timeSignature === null) {
-                        timeSignature = {
-                            numerator: bytes[pos],
-                            denominator: Math.pow(2, bytes[pos + 1])
-                        };
-                    }
+                    var signature = {
+                        numerator: bytes[pos],
+                        denominator: Math.pow(2, bytes[pos + 1])
+                    };
+                    if (timeSignature === null) timeSignature = signature;
+                    // Размер может меняться внутри пьесы: 2/2, потом 3/4,
+                    // потом 1/4 - без карты тактовые черты уезжают
+                    timeSignatures.push({
+                        tick: tick,
+                        numerator: signature.numerator,
+                        denominator: signature.denominator
+                    });
                 } else if (metaType === META.keySignature && metaLength.value >= 2) {
                     // sf - число знаков (отрицательное - бемоли), mi - минор
                     var sf = bytes[pos] > 127 ? bytes[pos] - 256 : bytes[pos];
@@ -374,6 +435,8 @@
             notes: notes,
             tempoBpm: tempoBpm,
             timeSignature: timeSignature,
+            // Все смены размера: по ним считаются тактовые черты
+            timeSignatures: timeSignatures,
             // Тональность дорожки: нужна, чтобы стан открылся со знаками
             keySignature: keySignature,
             programs: programs,
@@ -632,6 +695,35 @@
         if (!beatsPerBar || beatsPerBar <= 0) beatsPerBar = 4;
         var measureSteps = Math.max(1, Math.round(beatsPerBar * STEPS));
 
+        // Размер может меняться внутри пьесы (2/2, 3/4, 1/4, 4/4). Тогда
+        // тактовые черты берём из карты файла, а не из одной длины такта:
+        // иначе после смены размера черты уезжают
+        var barSteps = [];
+        var barStepSet = {};
+        var timeSignatures = data.timeSignatures || [];
+        if (timeSignatures.length > 1) {
+            var endTick = 0;
+            sourceNotes.forEach(function (note) {
+                endTick = Math.max(endTick, note.startTick + note.durationTicks);
+            });
+            var bars = barLineTicks(ppq, timeSignatures, endTick);
+            bars.forEach(function (tick) {
+                var step = Math.round(tick / stepTicks);
+                if (step > 0 && !barStepSet[step]) {
+                    barStepSet[step] = true;
+                    barSteps.push(step);
+                }
+            });
+            barSteps.sort(function (a, b) { return a - b; });
+        }
+
+        function nextBarStep(at) {
+            for (var i = 0; i < barSteps.length; i++) {
+                if (barSteps[i] > at + 1e-9) return barSteps[i];
+            }
+            return at + measureSteps;
+        }
+
         var NOTATION = [];
         [[1, 0], [2, 1], [4, 2], [8, 3], [16, 4], [32, 5]].forEach(function (pair) {
             var denominator = pair[0];
@@ -714,6 +806,16 @@
             skipped: 0,
             splitNotes: 0,
             tuplets: 0,
+            variableMeter: timeSignatures.length > 1,
+            // Размеры без повторов, в порядке появления: для сообщения
+            meters: (function () {
+                var list = [];
+                timeSignatures.forEach(function (item) {
+                    var name = item.numerator + '/' + item.denominator;
+                    if (list.indexOf(name) < 0) list.push(name);
+                });
+                return list;
+            })(),
             lowest: null,
             highest: null,
             polyphony: analyzePolyphony(data.notes || [])
@@ -737,6 +839,7 @@
         // начавшаяся между долями, сначала доходит до доли
         function barEndFrom(at) {
             if (at % STEPS === 0) {
+                if (barSteps.length) return nextBarStep(at);
                 return (Math.floor(at / measureSteps) + 1) * measureSteps;
             }
             return (Math.floor(at / STEPS) + 1) * STEPS;
@@ -759,11 +862,14 @@
                 var barEnd = barEndFrom(position);
                 var value = pick(startStep - position, barEnd - position);
                 if (!value) break;
+                var restEndsBar = !!barStepSet[position + value.steps];
                 elements.push({
                     isRest: true,
                     duration: value.duration,
                     dotted: dotsValue(value.dotted),
-                    tuplet: value.tuplet
+                    tuplet: value.tuplet,
+                    // Конец такта: приложение поставит здесь черту само
+                    hasBarLine: restEndsBar
                 });
                 stats.rests++;
                 position += value.steps;
@@ -777,6 +883,7 @@
                 var piece = pick(limit - position, barEndFrom(position) - position, position === startStep);
                 if (!piece) break;
                 var isLast = position + piece.steps >= endStep;
+                var endsBar = !!barStepSet[position + piece.steps];
                 elements.push({
                     isRest: false,
                     noteName: noteName,
@@ -784,7 +891,9 @@
                     dotted: dotsValue(piece.dotted),
                     tuplet: piece.tuplet,
                     // Продолжение той же ноты связываем лигой
-                    tiedToNext: !isLast
+                    tiedToNext: !isLast,
+                    // Конец такта из карты размеров: черта при ручном режиме
+                    hasBarLine: endsBar
                 });
                 stats.notes++;
                 if (piece.tuplet) stats.tuplets++;
@@ -1039,6 +1148,7 @@
         midiToName: midiToName,
         instrumentName: instrumentName,
         instrumentShift: instrumentShift,
+        barLineTicks: barLineTicks,
         bestOctaveShift: bestOctaveShift,
         fitReport: fitReport,
         RANGE_MIN_MIDI: RANGE_MIN_MIDI,
