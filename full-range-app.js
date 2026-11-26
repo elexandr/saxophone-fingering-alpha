@@ -4940,6 +4940,28 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         return converted;
     }
     
+    // Размер из файла: если такого нет в списке приложения (2/2 и подобные),
+    // показываем ближайший по длине такта
+    applyFileTimeSignature(signature) {
+        if (!signature) return;
+        const text = String(signature);
+        const select = document.getElementById('time-signature');
+        const known = select &&
+            Array.prototype.some.call(select.options, option => option.value === text);
+
+        if (known) {
+            this.setTimeSignature(text);
+            return;
+        }
+
+        const parts = text.split('/');
+        const beats = (Number(parts[0]) || 4) * 4 / (Number(parts[1]) || 4);
+        const fallback = beats >= 6 ? '6/8' : beats >= 4 ? '4/4' : beats >= 3 ? '3/4' : '2/4';
+        const fallbackKnown = select &&
+            Array.prototype.some.call(select.options, option => option.value === fallback);
+        if (fallbackKnown) this.setTimeSignature(fallback);
+    }
+
     // Темп и размер такта из файла переносим, если приложение их поддерживает
     applyMidiSettings(converted) {
         if (converted.tempoBpm) {
@@ -4948,23 +4970,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         
         const signature = converted.timeSignature;
         if (!signature) return;
-        
-        const text = signature.numerator + '/' + signature.denominator;
-        const select = document.getElementById('time-signature');
-        const known = select && Array.prototype.some.call(select.options, option => option.value === text);
-        
-        if (known) {
-            this.setTimeSignature(text);
-            return;
-        }
-
-        // 2/2 и подобные в списке приложения нет: показываем ближайший
-        // по длине такта, чтобы стан не остался с прежним размером
-        const beats = signature.numerator * 4 / signature.denominator;
-        const fallback = beats >= 6 ? '6/8' : beats >= 4 ? '4/4' : beats >= 3 ? '3/4' : '2/4';
-        const fallbackKnown = select &&
-            Array.prototype.some.call(select.options, option => option.value === fallback);
-        if (fallbackKnown) this.setTimeSignature(fallback);
+        this.applyFileTimeSignature(signature.numerator + '/' + signature.denominator);
     }
     
     // Что сказать о загруженном файле: сколько нот, одноголосый ли он,
@@ -6907,13 +6913,31 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             if (item.tiedToNext) element.tiedToNext = true;
             if (item.slurStart) element.slurStart = true;
             if (item.slurEnd) element.slurEnd = true;
+            // Тактовая черта и подпись размера из файла: в MusicXML такты
+            // заданы явно, поэтому стан повторяет их один в один
+            if (item.hasBarLine) element.hasBarLine = true;
+            if (item.metre) element.metre = item.metre;
         });
+
+        // Размер меняется по ходу пьесы: черты пришли из файла, стан рисует
+        // их в ручном режиме. Ставим до разметки, чтобы не перерисовывать дважды
+        const changesMetre = (parsed.metres || []).length > 1;
+        if (changesMetre) {
+            this.barLineMode = 'manual';
+            const metreRadio = document.querySelector(
+                'input[name="barline-mode"][value="manual"]');
+            if (metreRadio) metreRadio.checked = true;
+        }
 
         // Одна перерисовка на весь файл и одна запись автосохранения
         this.relayout();
         this.scheduleAutosave();
 
         this.loading = false;
+
+        // Размеры файла: надпись над станом говорит, что размер меняется
+        this.fileMeters = changesMetre ? parsed.metres : [];
+        if (this.fileMeters.length > 1) this.updateMeasureInfo();
 
         // Транспозиция выбранной партии: нужна для сдвига сопровождения
         this.fileTranspose = Number(parsed.transpose) || 0;
@@ -6942,7 +6966,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         if (this.afterShiftChange) this.afterShiftChange();
 
         if (parsed.tempo) this.setTempo(parsed.tempo);
-        if (parsed.timeSignature) this.setTimeSignature(parsed.timeSignature);
+        this.applyFileTimeSignature(parsed.timeSignature);
 
         // Тональность из файла: нужна, чтобы записать её обратно правильно
         if (typeof parsed.fifths === 'number') this.keyFifths = parsed.fifths;

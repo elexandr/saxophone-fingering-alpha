@@ -554,9 +554,26 @@
             out.push('        <measure number="' + (measureIndex + 1) + '">');
 
             if (measureIndex === 0) {
-                attributesXml(settings, options.timeSignature, settings.saxShift, settings.keyFifths)
+                // Первый такт: размер берём из файла, если он известен
+                var firstMetre = measure[0] && measure[0].metre;
+                attributesXml(settings, firstMetre || options.timeSignature,
+                    settings.saxShift, settings.keyFifths)
                     .forEach(function (line) { out.push(line); });
                 tempoXml(options.tempo).forEach(function (line) { out.push(line); });
+            } else {
+                // Смена размера: пишем <time>, иначе такты в файле разъедутся
+                var changeMetre = measure[0] && measure[0].metre;
+                if (changeMetre) {
+                    var metreParts = String(changeMetre).split('/');
+                    out.push('            <attributes>');
+                    out.push('                <time>');
+                    out.push('                    <beats>' +
+                        (Number(metreParts[0]) || 4) + '</beats>');
+                    out.push('                    <beat-type>' +
+                        (Number(metreParts[1]) || 4) + '</beat-type>');
+                    out.push('                </time>');
+                    out.push('            </attributes>');
+                }
             }
 
             // Левая черта вольты идёт до нот: иначе при чтении номер не привяжется
@@ -1030,6 +1047,46 @@
         // иначе стан короче сопровождения
         if (walked.endBeat - cursor > 0.01) pushRest(walked.endBeat - cursor);
 
+        // Тактовые черты и подписи размера из файла. В MusicXML такты заданы
+        // явно, поэтому стан повторяет их один в один: размер пишется в начале
+        // и там, где меняется, а концы тактов помечаются для ручного режима
+        (function applyFileMeasures() {
+            if (!elements.length) return;
+
+            var positions = [];
+            var position = 0;
+            elements.forEach(function (element) {
+                var beats = Number(element.beats);
+                if (!(beats > 0)) beats = 0;
+                positions.push({ element: element, start: position, end: position + beats });
+                position += beats;
+            });
+
+            // Конец каждого такта - на элементе, который до него дотянулся
+            var measureEnd = 0;
+            (walked.measureLengths || []).forEach(function (length) {
+                measureEnd += length;
+                for (var i = 0; i < positions.length; i++) {
+                    var mark = positions[i];
+                    if (Math.abs(mark.end - measureEnd) < 0.01) {
+                        mark.element.hasBarLine = true;
+                        break;
+                    }
+                    if (mark.end > measureEnd + 0.01) break;
+                }
+            });
+
+            // Подписи размера: первый такт и каждая смена
+            (walked.metreChanges || []).forEach(function (change) {
+                for (var i = 0; i < positions.length; i++) {
+                    if (positions[i].start >= change.startBeat - 0.01) {
+                        positions[i].element.metre = change.metre;
+                        break;
+                    }
+                }
+            });
+        })();
+
 
         return {
             elements: elements,
@@ -1037,6 +1094,8 @@
             timeSignature: (beats && beatType) ? (beats + '/' + beatType) : '',
             fifths: fifthsMatch ? Number(fifthsMatch[1]) : null,
             partCount: parts.length,
+            // Размеры файла без повторов: по ним решается ручной режим черт
+            metres: walked.metres || [],
             // Транспозиция выбранной партии: сколько она звучит относительно
             // написанного (у альта -9). Нужна, чтобы сопровождение встало
             // на своё место: аккомпанемент концертный, мелодия - как написана
@@ -1226,6 +1285,10 @@
         var hasTime = false;
         var measureStart = 0;
         var measureLengths = [];
+        // Размеры файла: в MusicXML такт может менять размер по ходу пьесы
+        var metres = [];
+        var metreChanges = [];
+        var previousMetre = null;
         var items = [];
         var octaveShift = 0;
         var pendingVolta = null;   // номер концовки, объявленной перед нотами
@@ -1239,6 +1302,14 @@
             if (times) {
                 measureBeats = Number(times[1]) * 4 / Number(times[2]);
                 hasTime = true;
+
+                // Подпись размера: в начале и на каждой смене
+                var metre = times[1] + '/' + times[2];
+                if (metres.indexOf(metre) < 0) metres.push(metre);
+                if (previousMetre === null || previousMetre !== metre) {
+                    metreChanges.push({ startBeat: measureStart, metre: metre });
+                }
+                previousMetre = metre;
             }
 
             var inMeasure = [];
@@ -1434,6 +1505,9 @@
             divisions: divisions,
             measureCount: measures.length,
             measureLengths: measureLengths,
+            // Размеры и их смены: по ним стан рисует подписи и черты
+            metres: metres,
+            metreChanges: metreChanges,
             endBeat: measureStart
         };
     }
