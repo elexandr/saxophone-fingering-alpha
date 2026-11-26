@@ -3960,6 +3960,13 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             } else if (mark === 'barline' && !repeatStarts.has(Math.round(rightEdge))) {
                 this.notationMarks.push(this.createBarLine(element, rightEdge));
             }
+
+            // Размер пишем в начале такта, как в нотах: две маленькие цифры
+            // одна над другой. Метка узкая и в раскладку не вмешивается
+            if (element.metre) {
+                const metreX = Math.round(element.x - slot / 2) + 1;
+                this.notationMarks.push(this.createMetreSign(element, metreX));
+            }
             
             if (element.repeatStart) {
                 const leftEdge = element.x - slot / 2;
@@ -4018,6 +4025,25 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
 
             beat = end;
         });
+    }
+
+    // Размер такта: две цифры одна над другой, как в нотах. Высота цифр
+    // маленькая, поэтому метка не растягивает стан
+    createMetreSign(element, x) {
+        const sign = document.createElement('div');
+        sign.className = 'metre-sign fade-in';
+        sign.style.left = x + 'px';
+        sign.style.top = (STAFF_MAIN_TOP + (STAFF_MAIN_BOTTOM - STAFF_MAIN_TOP) / 2 - 9) + 'px';
+        const parts = String(element.metre || '').split('/');
+        sign.innerHTML = '<span>' + (parts[0] || '') + '</span><span>' + (parts[1] || '') + '</span>';
+        sign.title = t('metre.title', { meter: element.metre });
+        sign.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.selectNote(element.id);
+        });
+
+        this.systemContainer(element).appendChild(sign);
+        return sign;
     }
 
     createBarLine(element, x) {
@@ -4517,7 +4543,9 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
                 graceSlash: !!note.graceSlash,
                 hasBarLine: !!note.hasBarLine,
                 repeatStart: !!note.repeatStart,
-                repeatEnd: !!note.repeatEnd
+                repeatEnd: !!note.repeatEnd,
+                // Размер, который пишется в начале этого такта
+                metre: note.metre || null
             })),
             settings: {
                 imageSize: this.imageSize,
@@ -4656,6 +4684,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             element.hasBarLine = !!item.hasBarLine;
             element.repeatStart = !!item.repeatStart;
             element.repeatEnd = !!item.repeatEnd;
+            // Размер над тактом: старый формат его не знал
+            element.metre = item.metre || null;
         });
         
         this.applySettings(data && data.settings);

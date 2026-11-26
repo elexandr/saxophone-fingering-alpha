@@ -263,6 +263,7 @@
             'target.note': 'ноты {name}',
             'target.rest': 'паузы',
 
+            'metre.title': 'Размер такта {meter}',
             'barline.title': 'Тактовая черта после {target}',
             'barline.repeatStartTitle': 'Начало репризы перед {target} (клик — убрать)',
             'barline.repeatEndTitle': 'Конец репризы после {target} (клик — убрать)',
@@ -724,6 +725,7 @@
             'target.note': 'note {name}',
             'target.rest': 'the rest',
 
+            'metre.title': 'Time signature {meter}',
             'barline.title': 'Bar line after {target}',
             'barline.repeatStartTitle': 'Repeat start before {target} (click to remove)',
             'barline.repeatEndTitle': 'Repeat end after {target} (click to remove)',

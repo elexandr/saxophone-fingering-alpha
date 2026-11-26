@@ -109,16 +109,18 @@
 
     // Позиции тактовых черт по карте размеров (в тиках, без нуля).
     // Размер меняется внутри пьесы, поэтому одной длиной такта не обойтись
-    function barLineTicks(ppq, timeSignatures, endTick) {
+    // Карта тактов: где кончается каждый такт и какой размер в нём
+    function barLineMap(ppq, timeSignatures, endTick) {
         var list = (timeSignatures || []).slice().sort(function (a, b) {
             return a.tick - b.tick;
         });
         if (!list.length || !ppq) return [];
 
-        var ticks = [];
+        var bars = [];
         var index = 0;
         var current = { numerator: 4, denominator: 4 };
         var position = 0;
+        var start = 0;
         var guard = 0;
 
         while (position < endTick - 1 && guard++ < 2000) {
@@ -139,11 +141,22 @@
             }
             if (next <= position) break;
 
-            ticks.push(Math.round(next));
-            position = next;
+            bars.push({
+                tick: Math.round(next),
+                start: Math.round(start),
+                metre: current.numerator + '/' + current.denominator
+            });
+            start = position = next;
         }
 
-        return ticks;
+        return bars;
+    }
+
+    // Только позиции черт: нужно разметке и проверкам
+    function barLineTicks(ppq, timeSignatures, endTick) {
+        return barLineMap(ppq, timeSignatures, endTick).map(function (bar) {
+            return bar.tick;
+        });
     }
 
     // Транспозиция инструмента по номеру программы General MIDI
@@ -700,21 +713,41 @@
         // иначе после смены размера черты уезжают
         var barSteps = [];
         var barStepSet = {};
+        // Подписи размера: step начала такта -> строка вида "3/4". Пишем
+        // только в первом такте и там, где размер меняется - иначе стан
+        // пестрит цифрами, а места они почти не занимают
+        var metreLabels = {};
         var timeSignatures = data.timeSignatures || [];
         if (timeSignatures.length > 1) {
             var endTick = 0;
             sourceNotes.forEach(function (note) {
                 endTick = Math.max(endTick, note.startTick + note.durationTicks);
             });
-            var bars = barLineTicks(ppq, timeSignatures, endTick);
-            bars.forEach(function (tick) {
-                var step = Math.round(tick / stepTicks);
+            var bars = barLineMap(ppq, timeSignatures, endTick);
+            var previousMetre = null;
+            bars.forEach(function (bar) {
+                var step = Math.round(bar.tick / stepTicks);
                 if (step > 0 && !barStepSet[step]) {
                     barStepSet[step] = true;
                     barSteps.push(step);
                 }
             });
             barSteps.sort(function (a, b) { return a - b; });
+
+            // Подписи: первый такт и каждая смена размера
+            bars.forEach(function (bar) {
+                var step = Math.round(bar.start / stepTicks);
+                if (previousMetre === null || bar.metre !== previousMetre) {
+                    metreLabels[step] = bar.metre;
+                }
+                previousMetre = bar.metre;
+            });
+        } else if (timeSignatures.length === 1) {
+            // Один размер на всю пьесу: подпись всё равно ставим в начале,
+            // как в нотах - основной размер на первом нотоносце
+            metreLabels[0] = timeSignatures[0].numerator + '/' + timeSignatures[0].denominator;
+        } else if (data.timeSignature) {
+            metreLabels[0] = data.timeSignature.numerator + '/' + data.timeSignature.denominator;
         }
 
         function nextBarStep(at) {
@@ -869,7 +902,9 @@
                     dotted: dotsValue(value.dotted),
                     tuplet: value.tuplet,
                     // Конец такта: приложение поставит здесь черту само
-                    hasBarLine: restEndsBar
+                    hasBarLine: restEndsBar,
+                    // Размер пишется в начале такта, где он меняется
+                    metre: metreLabels[position] || undefined
                 });
                 stats.rests++;
                 position += value.steps;
@@ -893,7 +928,9 @@
                     // Продолжение той же ноты связываем лигой
                     tiedToNext: !isLast,
                     // Конец такта из карты размеров: черта при ручном режиме
-                    hasBarLine: endsBar
+                    hasBarLine: endsBar,
+                    // Размер пишется в начале такта, где он меняется
+                    metre: metreLabels[position] || undefined
                 });
                 stats.notes++;
                 if (piece.tuplet) stats.tuplets++;
@@ -1149,6 +1186,7 @@
         instrumentName: instrumentName,
         instrumentShift: instrumentShift,
         barLineTicks: barLineTicks,
+        barLineMap: barLineMap,
         bestOctaveShift: bestOctaveShift,
         fitReport: fitReport,
         RANGE_MIN_MIDI: RANGE_MIN_MIDI,
