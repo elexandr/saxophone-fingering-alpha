@@ -4033,7 +4033,8 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         const sign = document.createElement('div');
         sign.className = 'metre-sign fade-in';
         sign.style.left = x + 'px';
-        sign.style.top = (STAFF_MAIN_TOP + (STAFF_MAIN_BOTTOM - STAFF_MAIN_TOP) / 2 - 9) + 'px';
+        // Две строки по 13px и отступы: центрируем знак по стану
+        sign.style.top = (STAFF_MAIN_TOP + (STAFF_MAIN_BOTTOM - STAFF_MAIN_TOP) / 2 - 14) + 'px';
         const parts = String(element.metre || '').split('/');
         sign.innerHTML = '<span>' + (parts[0] || '') + '</span><span>' + (parts[1] || '') + '</span>';
         sign.title = t('metre.title', { meter: element.metre });
