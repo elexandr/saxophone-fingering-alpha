@@ -578,6 +578,24 @@
             }
         }
 
+        // Гейт чужого экспорта: Guitar Pro и подобные программы пишут ноту
+        // короче, чем она должна звучать (около 80%), поэтому между нотой и
+        // следующим началом остаётся небольшой зазор. Если считать его
+        // паузой, восьмая превращается в 16-ю с триолью и паузой. Зазор
+        // меньше 1/16 доли или меньше четверти шага до следующей ноты - это
+        // не пауза, а спад звука: длительность берём до следующего начала
+        var gateFloor = ppq / 4;
+        for (var g = 0; g + 1 < sourceNotes.length; g++) {
+            var gateNote = sourceNotes[g];
+            var gateNext = sourceNotes[g + 1];
+            var gatePlace = gateNext.startTick - gateNote.startTick;
+            var gateGap = gatePlace - gateNote.durationTicks;
+            if (gatePlace <= 0 || gateGap <= 0) continue;
+            if (gateGap < gateFloor || gateGap <= gatePlace * 0.25) {
+                gateNote.durationTicks = gatePlace;
+            }
+        }
+
         // 2. Одна линия: верхняя нота в каждый момент, разрывы от наложений
         // склеиваем, а повторные начала - нет
         var segments = monophonicSegments(sourceNotes);
