@@ -107,6 +107,21 @@
 
     // --- разбор файла ------------------------------------------------------
 
+    // Транспозиция инструмента по номеру программы General MIDI
+    // (номера здесь с нуля: 64 - сопрано, 65 - альт, 66 - тенор, 67 - баритон).
+    // Сдвиг - на сколько инструмент звучит ниже написанного
+    var INSTRUMENT_SHIFTS = {
+        64: -2,
+        65: -9,
+        66: -14,
+        67: -21
+    };
+
+    function instrumentShift(program) {
+        if (program === undefined || program === null) return 0;
+        return INSTRUMENT_SHIFTS[Number(program)] || 0;
+    }
+
     function parse(buffer) {
         var bytes = toBytes(buffer);
         var errors = [];
@@ -134,6 +149,7 @@
         var tracks = [];
         var tempoBpm = null;
         var timeSignature = null;
+        var keySignature = null;
         var programs = {};
         var trackName = '';
         var trackInfos = [];
@@ -159,6 +175,7 @@
 
             if (tempoBpm === null && track.tempoBpm) tempoBpm = track.tempoBpm;
             if (timeSignature === null && track.timeSignature) timeSignature = track.timeSignature;
+            if (keySignature === null && track.keySignature) keySignature = track.keySignature;
             // Инструменты каналов и название дорожки: по ним назовём инструмент
             if (track.programs) {
                 Object.keys(track.programs).forEach(function (ch) { programs[ch] = track.programs[ch]; });
@@ -196,6 +213,7 @@
             trackCount: tracks.length,
             tempoBpm: tempoBpm,
             timeSignature: timeSignature,
+            keySignature: keySignature,
             programs: programs,
             tracks: trackInfos,
             trackName: trackName,
@@ -211,6 +229,9 @@
         var tick = 0;
         var runningStatus = null;
         var tempoBpm = null;
+        // Тональность из файла: без неё стан открывался без знаков при ключе,
+        // хотя в Guitar Pro и в нотах тональность видна
+        var keySignature = null;
         var timeSignature = null;
         var programs = {};
         var trackName = '';
@@ -252,6 +273,12 @@
                             numerator: bytes[pos],
                             denominator: Math.pow(2, bytes[pos + 1])
                         };
+                    }
+                } else if (metaType === META.keySignature && metaLength.value >= 2) {
+                    // sf - число знаков (отрицательное - бемоли), mi - минор
+                    var sf = bytes[pos] > 127 ? bytes[pos] - 256 : bytes[pos];
+                    if (keySignature === null) {
+                        keySignature = { fifths: sf, minor: bytes[pos + 1] };
                     }
                 } else if (metaType === META.endOfTrack) {
                     lastTick = Math.max(lastTick, tick);
@@ -347,9 +374,8 @@
             notes: notes,
             tempoBpm: tempoBpm,
             timeSignature: timeSignature,
-            programs: programs,
-            tracks: trackInfos,
-            trackName: trackName,
+            // Тональность дорожки: нужна, чтобы стан открылся со знаками
+            keySignature: keySignature,
             programs: programs,
             tracks: trackInfos,
             trackName: trackName
@@ -983,6 +1009,7 @@
         analyzePolyphony: analyzePolyphony,
         midiToName: midiToName,
         instrumentName: instrumentName,
+        instrumentShift: instrumentShift,
         bestOctaveShift: bestOctaveShift,
         fitReport: fitReport,
         RANGE_MIN_MIDI: RANGE_MIN_MIDI,

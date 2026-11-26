@@ -4807,6 +4807,28 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
             parsed.notes = allNotes.filter(note => ofChannel(note.channel) === onlyChannel);
         }
         
+        // MIDI хранит концертную высоту, а транспонирующие инструменты
+        // пишутся выше (альт - на большую сексту). Guitar Pro и ноты
+        // показывают партию как записанную, поэтому переносим ноты в
+        // письменную высоту и ставим пресет инструмента по его программе
+        const melodyChannel = (onlyChannel !== undefined && onlyChannel !== null)
+            ? Number(onlyChannel)
+            : (parsed.notes.length ? (Number(parsed.notes[0].channel) || 0) : 0);
+        const program = parsed.programs ? parsed.programs[melodyChannel] : undefined;
+        const instrumentShift = (typeof Midi.instrumentShift === 'function')
+            ? Midi.instrumentShift(program) : 0;
+
+        if (instrumentShift) {
+            // Написанное = звучащее минус сдвиг инструмента (у альта +9)
+            parsed.notes = parsed.notes.map(note => Object.assign({}, note, {
+                midi: note.midi - instrumentShift
+            }));
+            this.appSoundShift = this.clampShift(instrumentShift);
+            this.saxShift = this.clampShift(instrumentShift);
+            // Партия в файле теперь как записанная для этого инструмента
+            // (fileTranspose ставим ниже: разметка стана его обнуляет)
+        }
+
         const converted = Midi.toElements(parsed);
         
         if (!converted.elements.length) {
@@ -4836,6 +4858,10 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.accompaniment = accompaniment;
         this.renderAccompanimentPanel();
 
+        // Транспозиция партии для сдвига сопровождения: MIDI-партия теперь
+        // записана для выбранного инструмента, аккомпанемент концертный
+        this.fileTranspose = instrumentShift ? this.clampShift(instrumentShift) : 0;
+
         // Инструмент выбран заранее (альт, тенор): сопровождение из MIDI
         // звучит вместе с мелодией и получает тот же сдвиг. Связь при этом
         // включаем заново: прежний ручной 0 к новой пьесе не относится
@@ -4843,7 +4869,16 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
         this.syncAccompanimentShift();
 
         this.applyMidiSettings(converted);
-        this.updateStatus(this.midiStatusText(converted));
+
+        // Тональность из MIDI: ставленные ею знаки при ключе зависят от
+        // инструмента (у альта - на три диеза больше, чем в концертной)
+        if (parsed.keySignature && typeof parsed.keySignature.fifths === 'number') {
+            this.keyFifths = Math.max(-7, Math.min(7, Math.round(parsed.keySignature.fifths)));
+            if (instrumentShift) this.keyFifths = this.transposedKeyFifths(-instrumentShift);
+            this.relayout();
+        }
+
+        this.updateStatus(this.midiStatusText(converted, instrumentShift));
         
         return converted;
     }
@@ -4866,7 +4901,7 @@ document.getElementById('count-in-on').addEventListener('change', (e) => {
     
     // Что сказать о загруженном файле: сколько нот, одноголосый ли он,
     // не пришлось ли переносить и не потерялось ли что-то
-    midiStatusText(converted) {
+    midiStatusText(converted, instrumentShift) {
         const stats = converted.stats;
         const poly = stats.polyphony;
         
