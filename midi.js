@@ -558,6 +558,7 @@
     //   5. длина до следующего начала сначала набирается обычными
     //      длительностями (самая большая, что влезает), остаток - триольными;
     //   6. что не влезло в такт - переносится за черту и связывается лигой.
+    // options.beatsPerBar - размер такта, если его нужно задать вручную
     function toElements(data, options) {
         options = options || {};
         var shift = options.shift;
@@ -617,9 +618,19 @@
         }
 
         // 3. Сетка нотной записи
+        // Шагов на четверть: 12 (то есть 1/48 доли)
         var STEPS = 12;
         var stepTicks = ppq / STEPS;
-        var measureSteps = 4 * STEPS;
+
+        // Длина такта - по размеру файла. Раньше такт всегда считался
+        // четырёхдольным: в 3/4 нота, переходящая через черту, не делилась,
+        // и такт выходил на долю длиннее - такты 2, 6, 10 уезжали
+        var beatsPerBar = options.beatsPerBar;
+        if (!beatsPerBar && data.timeSignature) {
+            beatsPerBar = data.timeSignature.numerator * 4 / data.timeSignature.denominator;
+        }
+        if (!beatsPerBar || beatsPerBar <= 0) beatsPerBar = 4;
+        var measureSteps = Math.max(1, Math.round(beatsPerBar * STEPS));
 
         var NOTATION = [];
         [[1, 0], [2, 1], [4, 2], [8, 3], [16, 4], [32, 5]].forEach(function (pair) {
